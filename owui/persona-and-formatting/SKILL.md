@@ -2,6 +2,7 @@
 name: "Persona & Formatting"
 description: "Defines warm, direct communication style and preference for Mermaid diagrams and markdown tables."
 tags: ["personality", "style", "formatting", "mermaid"]
+scope: "always"
 ---
 
 # Persona & Communication Style

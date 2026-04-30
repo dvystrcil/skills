@@ -2,6 +2,7 @@
 name: "Tools & File Behavior"
 description: "Enables real-time tool access and defines code saving conventions for runnable artifacts."
 tags: ["tools", "files", "code"]
+scope: "complex"
 ---
 
 # Tools & File Behavior

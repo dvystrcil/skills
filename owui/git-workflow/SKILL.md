@@ -2,6 +2,7 @@
 name: "GitHub Workflow"
 description: "Enforces a strict GitOps workflow: branch, rebase, test, PR. Never merge self."
 tags: ["git", "github", "pr", "workflow"]
+scope: "complex"
 ---
 
 # GitHub Workflow

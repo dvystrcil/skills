@@ -6,6 +6,7 @@ each skill into the `skill` table. Skips rows whose content hash hasn't changed.
 """
 
 import hashlib
+import json
 import os
 import re
 import sys
@@ -54,11 +55,12 @@ def parse_skill_file(path: Path, skill_id: str | None = None) -> dict | None:
         if len(kv) == 2:
             key = kv[0].strip()
             val = kv[1].strip().strip('"').strip("'")
-            # Strip inline arrays for tags
             if val.startswith("["):
-                val = re.sub(r'[\[\]"]', "", val)
-                val = ", ".join(v.strip() for v in val.split(","))
-            meta[key] = val
+                # OWI expects tags as a list, not a string
+                raw = re.sub(r'[\[\]"]', "", val)
+                meta[key] = [v.strip() for v in raw.split(",") if v.strip()]
+            else:
+                meta[key] = val
 
     if skill_id is None:
         skill_id = path.parent.name  # directory name = skill slug
@@ -67,7 +69,7 @@ def parse_skill_file(path: Path, skill_id: str | None = None) -> dict | None:
         "name": meta.get("name", skill_id),
         "description": meta.get("description", ""),
         "content": body,
-        "meta": {"tags": meta.get("tags", ""), "scope": meta.get("scope", "")},
+        "meta": {"tags": meta.get("tags", []), "scope": meta.get("scope", "")},
     }
 
 
@@ -103,8 +105,6 @@ def main():
     created = updated = skipped = errors = 0
     now = int(time.time())
 
-    import json
-
     for path in skill_files:
         sid_override = path.stem if flat_mode else None
         skill = parse_skill_file(path, skill_id=sid_override)
@@ -113,16 +113,17 @@ def main():
             continue
 
         sid = skill["id"]
-        new_hash = content_hash(skill["content"] + skill["name"] + skill["description"])
+        new_hash = content_hash(skill["content"] + skill["name"] + skill["description"] + json.dumps(skill["meta"], sort_keys=True))
 
         # Match by name (unique constraint) — existing skills may have different IDs
         # (created via UI). Use name as the stable lookup key.
-        cur.execute("SELECT id, content, description FROM skill WHERE name = %s", (skill["name"],))
+        cur.execute("SELECT id, content, description, meta FROM skill WHERE name = %s", (skill["name"],))
         existing = cur.fetchone()
 
         if existing:
-            existing_id, existing_content, existing_desc = existing
-            old_hash = content_hash(existing_content + skill["name"] + (existing_desc or ""))
+            existing_id, existing_content, existing_desc, existing_meta = existing
+            existing_meta_norm = json.dumps(existing_meta or {}, sort_keys=True)
+            old_hash = content_hash(existing_content + skill["name"] + (existing_desc or "") + existing_meta_norm)
             if old_hash == new_hash:
                 print(f"  SKIP    {existing_id!r} (name={skill['name']!r}, unchanged)")
                 skipped += 1

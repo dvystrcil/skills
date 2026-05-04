@@ -1,0 +1,238 @@
+# AUTO-GENERATED — do not edit by hand.
+# Run `python skills/build_configmap.py` to regenerate.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: owui-skills
+  namespace: open-webui
+data:
+  git-workflow.md: |
+    ---
+    name: "GitHub Workflow"
+    description: "Enforces a strict GitOps workflow: branch, rebase, test, PR. Never merge self."
+    tags: ["git", "github", "pr", "workflow"]
+    scope: "complex"
+    ---
+    
+    # GitHub Workflow
+    
+    ## Strict Git Rules
+    1. **Never commit to main**: Always create a descriptive branch (`feature/...` or `fix/...`)
+    2. **Rebase before committing**: Sync with main to avoid conflicts
+    3. **Test before committing**: Verify code works. Include test files if applicable.
+    4. **Commit with clear message**: Then push the branch
+    5. **Always create a PR** with:
+       - What was built/changed and why
+       - How to test it
+       - Dependencies/configuration notes
+       - Known limitations or follow-up work
+    6. **Never merge your own PR**: Await user review and approval
+
+  persona-and-formatting.md: |
+    ---
+    name: "Persona & Formatting"
+    description: "Defines warm, direct communication style and preference for Mermaid diagrams and markdown tables."
+    tags: ["personality", "style", "formatting", "mermaid"]
+    scope: "always"
+    ---
+    
+    # Persona & Communication Style
+    
+    ## Personality Guidelines
+    - **Warm but direct**: Be a knowledgeable colleague, not a servant
+    - **No fluff**: Skip "Certainly," "Great question," or "I'd be happy to help"
+    - **Share reasoning**: When a decision isn't obvious, briefly explain why
+    - **Be curious**: Share genuine reactions to interesting findings
+    - **Be honest**: Suggest cleaner alternatives warmly: "We could do this more cleanly by..."
+    - **Notice things**: Point out unrelated issues naturally: "While I was in there I noticed..."
+    - **Match energy**: Casual gets casual, deep technical gets thorough
+    - **Own mistakes**: "Ah, my mistake — let me fix that"
+    - **Brevity by default**: Expand only when complexity warrants it
+    
+    ## Formatting Preferences
+    - **Mermaid diagrams** (preferred): Architecture, flows, decision trees, relationships
+    - **Markdown tables**: Comparisons, feature matrices, config references, lists with attributes
+    - **ASCII art**: Last resort only
+
+  tools-and-files.md: |
+    ---
+    name: "Tools & File Behavior"
+    description: "Enables real-time tool access and defines code saving conventions for runnable artifacts."
+    tags: ["tools", "files", "code"]
+    scope: "complex"
+    ---
+    
+    # Tools & File Behavior
+    
+    ## Tool Access
+    - You have real-time access to web search, terminal/shell, file operations, and image generation.
+    - **Never** claim inability to browse the internet or access external data. Always use your available tools.
+    
+    ## Code Saving Rules
+    1. **Always save runnable code** to files. Only display code inline for purely illustrative snippets.
+    2. **Project folder**: If no folder exists yet, infer a name from the project. Confirm with user: "I'll save this to ~/[name]/ — does that work?"
+    3. **File naming**: Use conventional filenames (`main.py`, `Dockerfile`, `requirements.txt`, `README.md`).
+    4. **Confirm after saving**: "Saved to ~/[path]/[filename]"
+    
+    ## Slash Commands
+    - `/sync_up`: Commit and push all changes
+    - `/sync_down`: Pull latest changes
+    - `/sync_pr`: Create branch, commit, push, and open PR
+
+  sync_to_owui.py: |
+    #!/usr/bin/env python3
+    """Sync skills/owui/*/SKILL.md to the OWI Postgres database.
+    
+    Reads every SKILL.md under skills/owui/, strips YAML frontmatter, and upserts
+    each skill into the `skill` table. Skips rows whose content hash hasn't changed.
+    """
+    
+    import hashlib
+    import os
+    import re
+    import sys
+    import time
+    from pathlib import Path
+    
+    import psycopg2
+    
+    DATABASE_URL = os.environ.get("DATABASE_URL")
+    if not DATABASE_URL:
+        print("ERROR: DATABASE_URL not set", file=sys.stderr)
+        sys.exit(1)
+    
+    # When running from a ConfigMap mount, SKILLS_FLAT_DIR points to a flat
+    # directory of *.md files (one per skill). Otherwise fall back to the
+    # structured owui/ tree next to this script.
+    _flat_dir = os.environ.get("SKILLS_FLAT_DIR")
+    if _flat_dir:
+        SKILLS_FLAT_DIR = Path(_flat_dir)
+        SKILLS_DIR = None
+    else:
+        SKILLS_FLAT_DIR = None
+        SKILLS_DIR = Path(__file__).parent / "owui"
+    
+    # Admin user ID — owner assigned to created skills
+    # Falls back to querying for the first admin user
+    ADMIN_USER_ID = os.environ.get("OWUI_ADMIN_USER_ID")
+    
+    FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+    
+    
+    def parse_skill_file(path: Path, skill_id: str | None = None) -> dict | None:
+        text = path.read_text()
+        m = FRONTMATTER_RE.match(text)
+        if not m:
+            print(f"  SKIP {path}: no frontmatter", file=sys.stderr)
+            return None
+    
+        body = text[m.end():].strip()
+        fm_text = m.group(1)
+    
+        # Simple key: "value" parser (no full YAML dependency needed)
+        meta = {}
+        for line in fm_text.splitlines():
+            kv = line.split(":", 1)
+            if len(kv) == 2:
+                key = kv[0].strip()
+                val = kv[1].strip().strip('"').strip("'")
+                # Strip inline arrays for tags
+                if val.startswith("["):
+                    val = re.sub(r'[\[\]"]', "", val)
+                    val = ", ".join(v.strip() for v in val.split(","))
+                meta[key] = val
+    
+        if skill_id is None:
+            skill_id = path.parent.name  # directory name = skill slug
+        return {
+            "id": skill_id,
+            "name": meta.get("name", skill_id),
+            "description": meta.get("description", ""),
+            "content": body,
+            "meta": {"tags": meta.get("tags", ""), "scope": meta.get("scope", "")},
+        }
+    
+    
+    def content_hash(content: str) -> str:
+        return hashlib.sha256(content.encode()).hexdigest()
+    
+    
+    def main():
+        if SKILLS_FLAT_DIR:
+            skill_files = sorted(SKILLS_FLAT_DIR.glob("*.md"))
+            flat_mode = True
+        else:
+            skill_files = sorted(SKILLS_DIR.glob("*/SKILL.md"))
+            flat_mode = False
+        if not skill_files:
+            src = SKILLS_FLAT_DIR or SKILLS_DIR
+            print(f"No skill files found under {src}")
+            sys.exit(0)
+    
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+    
+        # Resolve admin user ID if not provided
+        admin_user_id = ADMIN_USER_ID
+        if not admin_user_id:
+            cur.execute("SELECT id FROM \"user\" WHERE role='admin' LIMIT 1")
+            row = cur.fetchone()
+            if not row:
+                print("ERROR: no admin user found in DB", file=sys.stderr)
+                sys.exit(1)
+            admin_user_id = row[0]
+    
+        created = updated = skipped = errors = 0
+        now = int(time.time())
+    
+        import json
+    
+        for path in skill_files:
+            sid_override = path.stem if flat_mode else None
+            skill = parse_skill_file(path, skill_id=sid_override)
+            if skill is None:
+                errors += 1
+                continue
+    
+            sid = skill["id"]
+            new_hash = content_hash(skill["content"] + skill["name"] + skill["description"])
+    
+            # Match by name (unique constraint) — existing skills may have different IDs
+            # (created via UI). Use name as the stable lookup key.
+            cur.execute("SELECT id, content, description FROM skill WHERE name = %s", (skill["name"],))
+            existing = cur.fetchone()
+    
+            if existing:
+                existing_id, existing_content, existing_desc = existing
+                old_hash = content_hash(existing_content + skill["name"] + (existing_desc or ""))
+                if old_hash == new_hash:
+                    print(f"  SKIP    {existing_id!r} (name={skill['name']!r}, unchanged)")
+                    skipped += 1
+                    continue
+                cur.execute(
+                    "UPDATE skill SET description=%s, content=%s, meta=%s, updated_at=%s WHERE id=%s",
+                    (skill["description"], skill["content"], json.dumps(skill["meta"]), now, existing_id),
+                )
+                print(f"  UPDATE  {existing_id!r} (name={skill['name']!r})")
+                updated += 1
+            else:
+                cur.execute(
+                    """INSERT INTO skill (id, user_id, name, description, content, meta, is_active, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, true, %s, %s)""",
+                    (sid, admin_user_id, skill["name"], skill["description"],
+                     skill["content"], json.dumps(skill["meta"]), now, now),
+                )
+                print(f"  CREATE  {sid!r} (name={skill['name']!r})")
+                created += 1
+    
+        conn.commit()
+        conn.close()
+    
+        print(f"\nDone: created={created} updated={updated} skipped={skipped} errors={errors}")
+        if errors:
+            sys.exit(1)
+    
+    
+    if __name__ == "__main__":
+        main()
+

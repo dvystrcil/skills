@@ -117,6 +117,11 @@ data:
     - In README, link the word "MIT" to `LICENSE` (`[MIT](LICENSE)`)
     - **Forks keep upstream's license + default branch** — apply the rest of
       the rules but skip these two.
+    - **Dual license for prose-heavy repos:** MIT for code + CC-BY-4.0 for
+      docs. Either as umbrella `LICENSE` + sibling `LICENSE-docs.md`
+      (e.g. `model-testing`), or as separate `LICENSE-CODE.md` + `LICENSE-DOCS.md`
+      (e.g. `claude-personal-config`). `audit.sh` accepts NOASSERTION when a
+      sibling `LICENSE-{docs,DOCS,CODE,prose}.md` is present — intentional, not drift.
     
     ### Required files
     | File | Location | Reason |

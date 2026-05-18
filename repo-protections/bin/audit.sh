@@ -76,9 +76,11 @@ audit_one() {
     fi
   done
 
-  # Branch protection — only meaningful for public repos OR private-on-Pro
+  # Branch protection — only meaningful for public repos OR private-on-Pro.
+  # Always check the actual default branch (which may be 'main', 'master',
+  # 'release', etc. — especially on forks).
   local prot
-  prot=$(gh api "repos/$repo/branches/main/protection" 2>/dev/null || echo "")
+  prot=$(gh api "repos/$repo/branches/$def/protection" 2>/dev/null || echo "")
   if [ -z "$prot" ] || echo "$prot" | grep -q '"message"'; then
     if [ "$vis" = "private" ]; then
       printf "  \033[33m·\033[0m %-32s n/a (private repo, no Pro)\n" "branch protection"

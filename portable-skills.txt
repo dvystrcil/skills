@@ -1,0 +1,24 @@
+# Cluster-agnostic skill subset for the work-workstation install.
+# One skill name per line; blank lines and # comments ignored.
+# Read by dvystrcil/claude-personal-config/install.sh.
+#
+# Skills listed here that exist under claude/<name>/ in this repo are
+# symlinked into ~/.claude/skills/ on install. Skills listed here that
+# don't exist under claude/<name>/ are assumed to come from a different
+# source (e.g. Anthropic's skill registry) and the install logs a note.
+#
+# Homelab-specific skills (homelab-memory, owui-import-pipeline,
+# pgo-pre-upgrade-backup, upgrade-validate, n8n-import-workflow,
+# owui-memory-loader, devops-engineer) are intentionally OMITTED — they
+# reference infrastructure that doesn't exist on the work workstation.
+
+code-reviewer
+diary
+doc-master
+find-skills
+first-ask
+frontend-design
+repo-protections
+scheduler
+tdd
+test-architect

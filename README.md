@@ -1,70 +1,84 @@
-# Open WebUI Skills
+# skills
 
-## Intent
-This repository serves as the centralized, Git-managed source of truth for **Open WebUI skills**. 
+Canonical home for the skills used by **Claude Code**, **opencode**, and **OWUI**.
 
-Skills are modular, markdown-based instruction sets that teach the AI agent how to handle specific tasks (e.g., coding standards, git workflows, persona). By managing them here, we treat AI behavior configuration as code: versioned, auditable, and easily synced to the Open WebUI instance via a mounted directory.
+## Layout
 
-## How Open WebUI Uses Skills
-Open WebUI supports "External Skills" which are discovered automatically from a filesystem mount.
-
-### Key Mechanics
-*   **Discovery:** OWUI scans a specific root directory (e.g., `/external/skills`) for folders containing a `SKILL.md` file.
-*   **Manifesting:** It extracts metadata (Name, Description, Tags) from the YAML frontmatter of the markdown file. This manifest is sent to the model without loading the full content.
-*   **Lazy Loading:** The model only loads the full content of a skill when a user request triggers the `view_skill` tool based on the manifest description. This saves context tokens.
-*   **Read-Only:** Skills are intended to be read-only by the AI. You should edit them here and push changes to Git.
-
-## Directory Structure
-OWUI requires a specific hierarchy to map skills to your Git repo.
-
-```text
+```
 skills/
-└── owui/                    # (or whatever EXTERNAL_SKILLS_ROOT is set to)
-    ├── skill-folder-name/   # Folder name is often used as part of the ID
-    │   └── SKILL.md         # The instruction file
-    └── ...
+├── claude/                    # Claude Code & opencode flavor (frontmatter: name, description)
+│   ├── code-reviewer/SKILL.md
+│   ├── devops-engineer/SKILL.md
+│   ├── diary/SKILL.md
+│   ├── doc-master/SKILL.md
+│   ├── homelab-memory/SKILL.md
+│   ├── n8n-import-workflow/SKILL.md
+│   ├── owui-import-pipeline/SKILL.md
+│   ├── owui-memory-loader/SKILL.md
+│   ├── pgo-pre-upgrade-backup/SKILL.md
+│   ├── repo-protections/SKILL.md
+│   ├── test-architect/SKILL.md
+│   └── upgrade-validate/SKILL.md
+├── owui/                      # OWUI flavor (frontmatter: name, description, tags, scope)
+│   ├── git-workflow/SKILL.md
+│   ├── persona-and-formatting/SKILL.md
+│   ├── price-verification-specialist/SKILL.md
+│   ├── repo-protections/SKILL.md
+│   ├── tool-discipline/SKILL.md
+│   ├── tools-and-files/SKILL.md
+│   └── visualize/SKILL.md
+├── repo-protections/          # Shared executables for the repo-protections skill
+│   ├── bin/audit.sh
+│   ├── bin/apply.sh
+│   └── templates/
+├── portable-skills.txt        # Manifest: cluster-agnostic subset for the work workstation
+├── build_configmap.py         # Regenerates owui-skills-cm.yaml from owui/*/SKILL.md
+├── sync_to_owui.py            # Pushes skills from configmap into OWUI's DB at runtime
+├── sync_to_owui.yaml          # CronJob that runs sync_to_owui.py
+├── owui-skills-cm.yaml        # Generated ConfigMap (do not edit by hand)
+└── README.md                  # this file
 ```
 
-## Setup & Integration
-To make these skills live on your Open WebUI instance, ensure your Docker/K8s configuration includes:
+## Consumers
 
-### 1. Environment Variables
-```yaml
-environment:
-  - EXTERNAL_SKILLS_ROOT=/external/skills   # Where the mount is
-  - EXTERNAL_SKILLS_SYNC_ENABLED=true       # Enables the sync worker
-  - EXTERNAL_SKILLS_SYNC_INTERVAL=60        # How often to check for updates
+### Claude Code & opencode
+
+Both read from `~/.claude/skills/<name>/SKILL.md` — opencode's `~/.config/opencode/opencode.json` points its `skills.paths` at the same directory. The operator's local layout symlinks each user-authored skill in this repo into that location:
+
+```
+~/.claude/skills/code-reviewer  →  ~/Code/skills/claude/code-reviewer/
+~/.claude/skills/doc-master     →  ~/Code/skills/claude/doc-master/
+... etc
 ```
 
-### 2. Volume Mount
-```yaml
-volumes:
-  - ./skills:/external/skills:ro            # :ro ensures AI doesn't modify files
-```
+Anthropic-installed skills (`find-skills`, `first-ask`, `frontend-design`, `scheduler`, `tdd`) live under `~/.agents/skills/` and are symlinked into `~/.claude/skills/` separately — those are NOT redistributed in this repo.
 
-## Instructions for Future AIs
-If you are an AI agent tasked with managing these skills:
+### OWUI
 
-1. **Adding a New Skill:**
-   *   Create a new folder under `skills/owui/` named descriptively (e.g., `python-best-practices`).
-   *   Inside, create a file named exactly `SKILL.md`.
-   *   **Must** include YAML frontmatter:
-       ```yaml
-       ---
-       name: "Skill Name"
-       description: "Short description of what this skill does."
-       tags: ["tag1", "tag2"]
-       ---
-       # Markdown content follows...
-       ```
-2. **Modifying a Skill:**
-   *   Edit the `SKILL.md` in the existing folder.
-   *   If you change the `name` in the frontmatter, OWUI will treat it as an update; do **not** rename the file.
-3. **Syncing:**
-   *   Commit your changes to `master`.
-   *   On the Open WebUI instance, wait for the `EXTERNAL_SKILLS_SYNC_INTERVAL` (usually 60s) for the changes to appear.
+OWUI loads its skills from a ConfigMap mounted into the pod:
 
-## Current Skills
-*   **tools-and-files**: Rules for code saving, shell access, and web browsing.
-*   **git-workflow**: Strict GitOps rules (branching, rebasing, PRs).
-*   **persona-and-formatting**: Tone guidelines and diagramming standards.
+1. Edit `owui/<name>/SKILL.md` or add a new skill directory under `owui/`.
+2. Run `python build_configmap.py` to regenerate `owui-skills-cm.yaml`.
+3. Commit both files together — ArgoCD applies the ConfigMap.
+4. The `skill-sync` CronJob (`sync_to_owui.yaml`) pushes the SKILL.md contents into OWUI's database hourly.
+
+OWUI's SKILL.md format adds `tags` and `scope` to the frontmatter — those drive UI surfacing and lazy-load behavior in OWUI.
+
+### Work-workstation install
+
+[`dvystrcil/claude-personal-config`](https://github.com/dvystrcil/claude-personal-config)'s `install.sh` clones this repo, reads `portable-skills.txt`, and symlinks the cluster-agnostic subset into `~/.claude/skills/`. Homelab-specific skills (`homelab-memory`, `owui-*`, `pgo-pre-upgrade-backup`, `upgrade-validate`, `n8n-import-workflow`, `devops-engineer`) are intentionally omitted from the portable subset — they reference infrastructure the work workstation doesn't have.
+
+## Adding a new skill
+
+| Target | Where to add | Frontmatter |
+|---|---|---|
+| Claude Code / opencode | `claude/<name>/SKILL.md` | `name`, `description` |
+| OWUI | `owui/<name>/SKILL.md`, then re-run `build_configmap.py` | `name`, `description`, `tags`, `scope` |
+| All three | both directories | (bodies can be identical) |
+
+If the skill bundles scripts or templates (like `repo-protections`), put the SKILL.md(s) under `claude/` and/or `owui/` as usual, but put the shared assets at the top level under `<skill-name>/{bin,templates}/` and reference them via absolute paths.
+
+## Related repos
+
+- [`dvystrcil/claude-personal-config`](https://github.com/dvystrcil/claude-personal-config) — work-workstation installer + methodology docs (ac-process, diary practice)
+- [`dvystrcil/homelab`](https://github.com/dvystrcil/homelab) — cluster ops, where most homelab-specific skills' target infrastructure lives

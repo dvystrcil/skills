@@ -152,8 +152,15 @@ without protections — exactly the gap this skill closes.
 
 ## Where this skill lives
 
-- **Canonical source:** `~/Code/skills/repo-protections/` (this directory)
-- **Claude Code & opencode** read it via the symlink at `~/.claude/skills/repo-protections`
-- **OWUI** reads its own flavor at `~/Code/skills/owui/repo-protections/SKILL.md`
+Skills live in [`dvystrcil/skills`](https://github.com/dvystrcil/skills):
 
-Both SKILL.md files reference the same scripts in `bin/` — keep them in sync.
+- **`claude/repo-protections/SKILL.md`** — this file (Claude / opencode flavor)
+- **`owui/repo-protections/SKILL.md`** — OWUI flavor (with `tags` + `scope` frontmatter)
+- **`repo-protections/bin/`** + **`repo-protections/templates/`** — shared executables and templates, referenced by both flavors
+
+Locally on the operator's machine:
+
+- `~/.claude/skills/repo-protections` → symlinked to `~/Code/skills/claude/repo-protections/`
+- The `bin/` scripts are invoked via the absolute path `~/Code/skills/repo-protections/bin/{audit,apply}.sh`
+
+Keep the two SKILL.md flavors in sync when the convention changes.

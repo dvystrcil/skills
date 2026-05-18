@@ -51,7 +51,25 @@ audit_one() {
     printf "  \033[33m·\033[0m %-32s fork of %s — license/default-branch tracked upstream\n" "fork status" "$parent"
   else
     check "default branch"           "$def"     "main"
-    check "license"                  "$lic"     "MIT"
+
+    # License detection. NOASSERTION usually means the LICENSE file contains
+    # canonical license text PLUS extra content (e.g., a multi-license
+    # umbrella). Check for a sibling docs-license file before flagging.
+    if [ "$lic" = "NOASSERTION" ]; then
+      docs_lic=""
+      for candidate in LICENSE-docs.md LICENSE-DOCS.md LICENSE-CODE.md LICENSE-prose.md; do
+        if gh api "repos/$repo/contents/$candidate" >/dev/null 2>&1; then
+          docs_lic="$candidate"; break
+        fi
+      done
+      if [ -n "$docs_lic" ]; then
+        printf "  \033[33m·\033[0m %-32s multi-license (umbrella + %s) — intentional\n" "license" "$docs_lic"
+      else
+        check "license"               "$lic"     "MIT"
+      fi
+    else
+      check "license"                 "$lic"     "MIT"
+    fi
   fi
   check "allow_merge_commit"         "$merge"   "false"
   check "allow_squash_merge"         "$sq"      "true"

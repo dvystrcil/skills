@@ -25,6 +25,40 @@ should be closed within the same session it's noticed.
 its upstream license and branch convention. Apply the rest (merge mode,
 branch protection, CODEOWNERS) as normal.
 
+### Dual licensing for repos with substantial prose
+
+When a repo contains documentation, reports, methodology notes, or other
+prose that's meaningfully distinct from code, split licensing into two
+layers:
+
+- **Code** (scripts, fixtures, payloads, configs) — **MIT**
+- **Prose** (README, design docs, results, methodology) — **CC-BY-4.0**
+  (Creative Commons Attribution 4.0 International)
+
+This is intentional, not a workaround. CC-BY-4.0 is more appropriate for
+written content because (a) it gives explicit attribution semantics for
+quoted/excerpted material, and (b) MIT's "software" framing maps awkwardly
+to prose.
+
+Two valid structures:
+
+1. **Umbrella + sibling** — `LICENSE` at the root carries the canonical MIT
+   text plus a note explaining the dual setup, with `LICENSE-docs.md`
+   holding the CC-BY-4.0 details. Example: `dvystrcil/model-testing`.
+2. **Separate files** — `LICENSE-CODE.md` (MIT) and `LICENSE-DOCS.md`
+   (CC-BY-4.0), no umbrella `LICENSE`. Example: `dvystrcil/claude-personal-config`.
+
+Either structure makes `licensee` (GitHub's auto-detector) return
+`NOASSERTION` because the umbrella has extra text or there's no canonical-
+named `LICENSE` file. **`audit.sh` recognizes both patterns** — if it sees
+a sibling `LICENSE-{docs,DOCS,CODE,prose}.md` it accepts NOASSERTION as
+intentional rather than flagging as drift.
+
+**When to dual-license:** any repo where the prose IS the deliverable, or
+where you might want someone to cite the writing without inheriting an MIT
+"software" framing. Repos that are purely code (a script, a Docker image,
+a service) don't need this.
+
 ### Required files at repo root or `.github/`
 
 | File | Where | Why |

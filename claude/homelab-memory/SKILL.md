@@ -1,6 +1,65 @@
 ---
 name: homelab-memory
 description: Single canonical CLI to read/write the homelab's shared memory store — same store Claude Code's auto-memory uses, exposed so opencode, OWUI filter functions, and n8n workflows can all interact via one stable interface. File-backed v1; storage layer is swappable.
+script: bin/homelab-memory.sh
+# Subcommand-style CLI. The top-level args entry selects the operation;
+# each subcommand has its own args (and possibly stdin) block. The MCP
+# dispatcher should validate that the chosen subcommand's args are all
+# satisfied before invoking the script.
+args:
+  - name: subcommand
+    type: enum
+    required: true
+    cli_position: 1
+    values: [list, show, search, add, remove]
+    description: Operation to perform against the memory store.
+subcommands:
+  list:
+    description: List all memory entries (one row per entry, type/name/description).
+    args: []
+  show:
+    description: Print the full markdown body of one entry (frontmatter stripped).
+    args:
+      - name: name
+        type: string
+        required: true
+        cli_position: 2
+        description: Entry name (slug) or filename. Matched against frontmatter `name:` or filesystem path.
+  search:
+    description: Case-insensitive substring search across name + description + body of every entry.
+    args:
+      - name: query
+        type: string
+        required: true
+        cli_position: 2
+        description: Substring to match. Case-insensitive.
+  add:
+    description: Create a new memory entry. Body is read from stdin; required fields written to frontmatter.
+    args:
+      - name: type
+        type: enum
+        required: true
+        cli_position: 2
+        values: [user, feedback, project, reference]
+        description: Entry type — drives how the entry is consumed by readers.
+      - name: name
+        type: string
+        required: true
+        cli_position: 3
+        description: Short slug; sanitized to letters/digits/underscores/dashes.
+    stdin:
+      name: body
+      type: string
+      required: true
+      description: Markdown body of the entry. The script reads from stdin; MCP dispatcher passes this arg via the subprocess stdin pipe.
+  remove:
+    description: Delete an entry by name or slug.
+    args:
+      - name: name
+        type: string
+        required: true
+        cli_position: 2
+        description: Entry name (slug) or filename to delete.
 ---
 
 # Homelab Memory

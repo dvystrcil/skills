@@ -1,6 +1,19 @@
 ---
 name: n8n-import-workflow
 description: Deploy n8n workflow JSONs from a git repo to the running cluster's n8n instance. The canonical "load these workflows" action whenever a new or edited workflow JSON needs to reach n8n — replaces manual UI imports.
+script: bin/n8n-import-workflow.sh
+args:
+  - name: path
+    type: string
+    required: true
+    cli_position: 1
+    description: A .json file OR a directory containing *.json files (non-recursive — top level only).
+  - name: activate
+    type: boolean
+    required: false
+    cli_flag: --activate
+    default: false
+    description: After successful import, also flip the workflow's active flag. Required if you want the workflow to run on its trigger immediately.
 ---
 
 # n8n Import Workflow

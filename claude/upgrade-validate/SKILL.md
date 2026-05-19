@@ -1,6 +1,49 @@
 ---
 name: upgrade-validate
 description: Run the standard 6-test TDD validation suite against a service. Designed to be run identically before AND after an upgrade so the output can be diffed; same exit code, same shape. Step 6 of the seven-step upgrade process.
+script: bin/upgrade-validate.sh
+args:
+  - name: argo_app
+    type: string
+    required: true
+    cli_position: 1
+    description: ArgoCD Application name (in argocd ns).
+  - name: namespace
+    type: string
+    required: true
+    cli_position: 2
+    description: K8s namespace where the Deployment lives.
+  - name: deployment
+    type: string
+    required: true
+    cli_position: 3
+    description: Deployment name to validate.
+  - name: label
+    type: string
+    required: false
+    cli_flag: --label
+    description: Tag printed in output (no semantic effect — just for diffing baseline vs post).
+  - name: probe_path
+    type: string
+    required: false
+    cli_flag: --probe-path
+    default: /api/status
+    description: HTTP path for the T3 probe.
+  - name: service
+    type: string
+    required: false
+    cli_flag: --service
+    description: Service name override (default same as deployment).
+  - name: probe_port
+    type: integer
+    required: false
+    cli_flag: --probe-port
+    description: Force a specific port for T3 (default first port on the Service).
+  - name: extra_check
+    type: string
+    required: false
+    cli_flag: --extra-check
+    description: Custom T6 check command; treated as PASS if exit 0.
 ---
 
 # Upgrade Validate

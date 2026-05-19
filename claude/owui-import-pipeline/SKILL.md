@@ -1,6 +1,13 @@
 ---
 name: owui-import-pipeline
 description: Install/update OWUI Pipeline .py files (filter / pipe / manifold) into the running owui-pipelines pod via kubectl cp + runtime reload. Replaces the manual "Admin Panel → Settings → Pipelines → upload" UI flow. Pipelines, NOT Functions — see "When NOT to use" below.
+script: bin/owui-import-pipeline.sh
+args:
+  - name: path
+    type: string
+    required: true
+    cli_position: 1
+    description: A .py file OR a directory containing *.py files. Filenames must be valid Python module names (underscores OK, dashes not — the basename becomes the pipeline id in OWUI).
 ---
 
 # OWUI Import Pipeline

@@ -1,6 +1,8 @@
 ---
 name: owui-memory-loader
 description: Open WebUI filter that injects homelab memory entries into the system prompt at chat-start. Mirrors Claude Code's auto-memory pattern in OWUI. Source-of-truth Python lives in homelab/prompts/owui/filters/; user installs into OWUI via the Functions UI.
+script: null  # Not a CLI script. This skill is an OWUI Function (Python), installed via the OWUI Functions UI / owui-import-pipeline. There is no CLI surface to dispatch through.
+args: []  # not MCP-dispatchable — see homelab#22 AC1 amendment
 ---
 
 # OWUI Memory Loader Filter

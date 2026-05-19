@@ -1,6 +1,24 @@
 ---
 name: pgo-pre-upgrade-backup
 description: Take a verified, durable Postgres backup of a Crunchy PGO cluster before an upgrade. Backup ends up on NFS so it survives pod/node failures and is restorable from any pod. Use this BEFORE bumping the chart version of an app whose data lives in PGO.
+script: bin/pgo-pre-upgrade-backup.sh
+args:
+  - name: namespace
+    type: string
+    required: true
+    cli_position: 1
+    description: K8s namespace where the PostgresCluster CR lives.
+  - name: cluster
+    type: string
+    required: true
+    cli_position: 2
+    description: Name of the PostgresCluster CR (typically <app>-postgres).
+  - name: label
+    type: string
+    required: false
+    cli_flag: --label
+    default: backup
+    description: Tag embedded in the dump filename, e.g. "pre-1.8.0". Defaults to "backup".
 ---
 
 # PGO Pre-Upgrade Backup

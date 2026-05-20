@@ -26,7 +26,7 @@ permissions:
 jobs:
   rebuild:
     if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
+    runs-on: skills-runner
     steps:
       - name: Fetch secrets from Infisical
         uses: Infisical/secrets-action@v1.0.16

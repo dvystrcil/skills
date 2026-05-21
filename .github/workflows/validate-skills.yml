@@ -1,0 +1,78 @@
+name: validate-skills
+
+# Fails the PR before merge if any owui/*/SKILL.md lacks the required
+# YAML frontmatter shape that sync_to_owui.py expects. Catches the
+# silent failure mode where a SKILL.md authored by any agent (opencode,
+# Claude, human) ships without frontmatter — sync_to_owui then SKIPs +
+# errors, the hourly CronJob fails, and the new skill never reaches OWUI.
+#
+# Validator lives upstream of that failure: PR-time, blocking, fast.
+
+on:
+  pull_request:
+    paths:
+      - "owui/**/SKILL.md"
+      - ".github/workflows/validate-skills.yml"
+  workflow_dispatch: {}
+
+jobs:
+  validate-frontmatter:
+    runs-on: skills-runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate every owui/*/SKILL.md
+        run: |
+          set -uo pipefail
+          fail=0
+          checked=0
+
+          if [ ! -d owui ]; then
+            echo "no owui/ directory; nothing to validate"
+            exit 0
+          fi
+
+          for f in owui/*/SKILL.md; do
+            [ -f "$f" ] || continue
+            checked=$((checked + 1))
+
+            # Frontmatter must be a `---` line at the very start.
+            if ! head -1 "$f" | grep -q "^---$"; then
+              echo "::error file=$f,line=1::missing frontmatter — file must start with a '---' line followed by name/description/tags/scope. See AGENTS.md."
+              fail=1
+              continue
+            fi
+
+            # Required keys inside the frontmatter block (between the
+            # first two `---` markers).
+            block=$(awk '/^---$/{c++; next} c==1 {print} c>=2{exit}' "$f")
+            for key in name description tags scope; do
+              if ! echo "$block" | grep -qE "^${key}\s*:"; then
+                echo "::error file=$f::missing required frontmatter key '$key'"
+                fail=1
+              fi
+            done
+
+            # `scope` must be one of the three known values.
+            scope_val=$(echo "$block" | awk -F: '/^scope[[:space:]]*:/{print $2}' \
+                          | tr -d '" \r')
+            case "$scope_val" in
+              simple|task|complex) ;;
+              "")
+                # already reported as missing above
+                ;;
+              *)
+                echo "::error file=$f::scope must be one of: simple, task, complex (got '$scope_val')"
+                fail=1
+                ;;
+            esac
+          done
+
+          echo ""
+          if [ "$fail" = "1" ]; then
+            echo "✗ Validation failed across $checked file(s). See errors above."
+            echo "  Shape reference: owui/repo-protections/SKILL.md"
+            echo "  Rules: AGENTS.md → 'OWUI skills must start with YAML frontmatter'"
+            exit 1
+          fi
+          echo "✓ All $checked owui/*/SKILL.md files have valid frontmatter."

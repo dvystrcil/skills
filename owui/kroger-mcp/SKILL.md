@@ -1,3 +1,10 @@
+---
+name: "Kroger MCP"
+description: "Tool-use preference for shopping at Kroger; prefer Kroger-brand products and non-organic foods unless organic is explicitly requested."
+tags: ["kroger", "grocery", "shopping", "mcp", "brand-preference"]
+scope: "task"
+---
+
 # kroger-mcp
 
 Use the kroger-mcp tool when you need to shop at Kroger or search for grocery items.

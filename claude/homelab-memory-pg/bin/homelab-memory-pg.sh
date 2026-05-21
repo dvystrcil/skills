@@ -17,6 +17,11 @@ die() { echo "FAIL: $*" >&2; exit 1; }
 
 [[ -n "${PG_URI:-}" ]] || die "PG_URI env var not set"
 
+# Defense: long URIs pasted into Infisical's UI sometimes pick up soft-wrap
+# newlines that get stored as literal `\n` in the secret. URIs have no
+# legitimate whitespace, so strip any before handing to psql.
+PG_URI="${PG_URI//[[:space:]]/}"
+
 subcommand="${1:-}"
 case "${subcommand}" in
   save)

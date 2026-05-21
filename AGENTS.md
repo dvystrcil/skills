@@ -13,7 +13,7 @@ Every `owui/*/SKILL.md` MUST start with a YAML frontmatter block. Required field
 | `name` | string | Human-readable display name shown in OWUI's UI |
 | `description` | string | One-line summary; surfaces in the skill picker |
 | `tags` | array of strings | Category labels |
-| `scope` | one of `simple`, `task`, `complex` | Controls how OWUI loads the skill |
+| `scope` | one of `simple`, `task`, `complex`, `always` | Controls how OWUI loads the skill; `always` = inject on every chat regardless of intent (use sparingly) |
 
 **Working reference: copy the shape from [`owui/repo-protections/SKILL.md`](owui/repo-protections/SKILL.md).**
 

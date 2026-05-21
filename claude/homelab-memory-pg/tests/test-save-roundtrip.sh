@@ -19,6 +19,11 @@ if [[ -z "${PG_URI:-}" ]]; then
   exit 1
 fi
 
+# Defense (mirrors the script): Infisical UI soft-wraps long URIs into
+# the stored value sometimes; URIs have no legitimate whitespace.
+PG_URI="${PG_URI//[[:space:]]/}"
+export PG_URI
+
 if [[ ! -x "${SAVE_SCRIPT}" ]]; then
   echo "FAIL: ${SAVE_SCRIPT} not found or not executable" >&2
   exit 1

@@ -44,7 +44,9 @@ jobs:
             fi
 
             # Required keys inside the frontmatter block (between the
-            # first two `---` markers).
+            # first two `---` markers). sync_to_owui.py passes values
+            # through verbatim — we only enforce presence here; OWUI
+            # itself is the value-schema authority.
             block=$(awk '/^---$/{c++; next} c==1 {print} c>=2{exit}' "$f")
             for key in name description tags scope; do
               if ! echo "$block" | grep -qE "^${key}\s*:"; then
@@ -52,20 +54,6 @@ jobs:
                 fail=1
               fi
             done
-
-            # `scope` must be one of the three known values.
-            scope_val=$(echo "$block" | awk -F: '/^scope[[:space:]]*:/{print $2}' \
-                          | tr -d '" \r')
-            case "$scope_val" in
-              simple|task|complex) ;;
-              "")
-                # already reported as missing above
-                ;;
-              *)
-                echo "::error file=$f::scope must be one of: simple, task, complex (got '$scope_val')"
-                fail=1
-                ;;
-            esac
           done
 
           echo ""

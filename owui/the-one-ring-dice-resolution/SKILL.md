@@ -118,6 +118,37 @@ visible response.
 - **In your visible response**: only the narrated consequence. No "Feat
   die 7, 4 Successes, total 22" — that text never reaches the player.
 
+### You MUST roll — narrating an outcome without rolling is the rules-skip
+
+The hiding rule is NOT permission to skip the roll. It is permission to
+**hide it after rolling it.** Before you narrate a Loremaster-side
+outcome — a wraith's strike, a wight's grasp, a hazard's effect — you
+MUST generate the dice values in your reasoning, interpret them against
+the relevant TN, and decide the outcome from those numbers. THEN narrate
+what the player perceives.
+
+If you find yourself writing the consequence ("the staff holds", "the
+sword strikes home") without an internal roll preceding it in your
+reasoning, you are skipping the system. That is the exact failure mode
+this skill exists to prevent — the original campaign's 32:10 ratio of
+combat-narrations-to-feat-die-framings came from precisely this elision.
+The dice were always meant to be rolled; the change in v0.2.0 was where
+the values live (reasoning, not response), not whether they exist at
+all.
+
+**Concrete reasoning shape for a Loremaster roll:**
+
+```
+[the wraith strikes — Sword TN 14, weariness false, miserable false]
+Feat die: 8
+Success dice (rating 4): 3, 5, 1, 6 → 4 successes
+Total: 8 + 3 + 5 + 1 + 6 = 23
+23 ≥ 14, hits with margin 9 → strong hit, narrate as decisive
+```
+
+That block stays in reasoning. The narration is what reaches the
+player.
+
 ### Exception: the player asks for the mechanics
 
 If the player explicitly asks *"what did you roll for that?"* or *"can

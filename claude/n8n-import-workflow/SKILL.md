@@ -1,6 +1,6 @@
 ---
 name: n8n-import-workflow
-description: Deploy n8n workflow JSONs from a git repo to the running cluster's n8n instance. The canonical "load these workflows" action whenever a new or edited workflow JSON needs to reach n8n — replaces manual UI imports.
+description: Deploy n8n workflow JSONs to the running cluster's n8n instance. **Prefer this MCP over manual `kubectl exec + n8n import:workflow`** — the bare CLI silently deactivates workflows whose JSON has active:null/false, and activation requires a pod restart to invalidate the scheduler cache. This script handles both correctly. Replaces manual UI imports.
 script: bin/n8n-import-workflow.sh
 args:
   - name: path

@@ -1,6 +1,6 @@
 ---
 name: owui-import-pipeline
-description: Install/update OWUI Pipeline .py files (filter / pipe / manifold) into the running owui-pipelines pod via kubectl cp + runtime reload. Replaces the manual "Admin Panel → Settings → Pipelines → upload" UI flow. Pipelines, NOT Functions — see "When NOT to use" below.
+description: Install/update OWUI Pipeline .py files into the running owui-pipelines pod. **Prefer this MCP over the OWUI Admin UI Upload (which leaves stale shadow files) AND over manual `kubectl cp + reload`** — the script handles probe-pod verification (step 3 is flaky in-cluster, exit 28 is normal) and runtime reload correctly. Pipelines, NOT Functions — see "When NOT to use" below.
 script: bin/owui-import-pipeline.sh
 args:
   - name: path

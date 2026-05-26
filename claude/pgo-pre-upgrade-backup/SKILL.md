@@ -1,6 +1,6 @@
 ---
 name: pgo-pre-upgrade-backup
-description: Take a verified, durable Postgres backup of a Crunchy PGO cluster before an upgrade. Backup ends up on NFS so it survives pod/node failures and is restorable from any pod. Use this BEFORE bumping the chart version of an app whose data lives in PGO.
+description: Take a verified, durable Postgres backup of a Crunchy PGO cluster before an upgrade. **Prefer this MCP over plain `pgbackrest backup`** — it confirms the backup landed on NFS and is restorable from any pod before returning, so a corrupted backup doesn't silently pass. Use BEFORE bumping the chart version of any app whose data lives in PGO.
 script: bin/pgo-pre-upgrade-backup.sh
 args:
   - name: namespace

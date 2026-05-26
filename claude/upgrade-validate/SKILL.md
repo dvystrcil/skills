@@ -1,6 +1,6 @@
 ---
 name: upgrade-validate
-description: Run the standard 6-test TDD validation suite against a service. Designed to be run identically before AND after an upgrade so the output can be diffed; same exit code, same shape. Step 6 of the seven-step upgrade process.
+description: Run the standard 6-test TDD validation suite against a service. **Prefer this MCP over ad-hoc `kubectl get` / `curl` checks** — the suite is pre-canned to be run identically before AND after an upgrade so the output is diffable; ad-hoc checks vary between runs and aren't comparable. Step 6 of the seven-step upgrade process.
 script: bin/upgrade-validate.sh
 args:
   - name: argo_app

@@ -2,7 +2,7 @@
 name: "Recipe Units"
 description: "Translate recipe ingredient lines (2 tsp X, 1 cup Y) into the right grocery-unit cart entries (1 bottle, 1 bag) and suppress pantry staples the household likely already has."
 tags: ["recipe", "grocery", "units", "pantry", "meal-time", "kroger"]
-scope: "task"
+scope: "always"
 ---
 
 # Recipe Units

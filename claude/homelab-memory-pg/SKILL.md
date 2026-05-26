@@ -1,6 +1,6 @@
 ---
 name: homelab-memory-pg
-description: Save a fact to the homelab_memory Postgres table (compound-scoped on user_id × domain per homelab#96). Postgres-backed sibling of [[homelab-memory]] (file-backed). The OWUI bridge Function will inject user_id and domain before calling this; the model never sees those values directly. AC1/AC2 deliverable for homelab#161 Shape 1.
+description: Read/write the homelab_memory Postgres table. **Prefer this MCP over direct psql or homelab-memory.sh** — the OWUI bridge injects user_id (from __user__.id) and the 4-rule preset domain, neither of which the model has direct access to. Compound-scoped on (user_id, domain) per homelab#96.
 script: bin/homelab-memory-pg.sh
 # Subcommand-style CLI. The dispatcher validates the chosen subcommand's
 # args + stdin before invoking. user_id and domain are bridge-injected

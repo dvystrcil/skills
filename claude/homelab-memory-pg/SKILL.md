@@ -54,3 +54,9 @@ env:
       secret `open-webui/owui-postgres-pguser-homelab` and exports it
       as PG_URI before dispatching. NEVER build the URI from parts —
       per PGO quirks memory, password chars break query-string assembly.
+
+---
+
+# homelab-memory-pg
+
+Postgres-backed memory operations for the homelab_memory table. See the frontmatter above for the structured args; this skill is fully MCP-dispatchable.

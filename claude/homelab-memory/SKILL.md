@@ -1,83 +1,30 @@
 ---
 name: homelab-memory
-description: Single canonical CLI to read/write the homelab's shared memory store — same store Claude Code's auto-memory uses, exposed so opencode, OWUI filter functions, and n8n workflows can all interact via one stable interface. File-backed v1; storage layer is swappable.
-script: bin/homelab-memory.sh
-# Subcommand-style CLI. The top-level args entry selects the operation;
-# each subcommand has its own args (and possibly stdin) block. The MCP
-# dispatcher should validate that the chosen subcommand's args are all
-# satisfied before invoking the script.
-args:
-  - name: subcommand
-    type: enum
-    required: true
-    cli_position: 1
-    values: [list, show, search, add, remove]
-    description: Operation to perform against the memory store.
-subcommands:
-  list:
-    description: List all memory entries (one row per entry, type/name/description).
-    args: []
-  show:
-    description: Print the full markdown body of one entry (frontmatter stripped).
-    args:
-      - name: name
-        type: string
-        required: true
-        cli_position: 2
-        description: Entry name (slug) or filename. Matched against frontmatter `name:` or filesystem path.
-  search:
-    description: Case-insensitive substring search across name + description + body of every entry.
-    args:
-      - name: query
-        type: string
-        required: true
-        cli_position: 2
-        description: Substring to match. Case-insensitive.
-  add:
-    description: Create a new memory entry. Body is read from stdin; required fields written to frontmatter.
-    args:
-      - name: type
-        type: enum
-        required: true
-        cli_position: 2
-        values: [user, feedback, project, reference]
-        description: Entry type — drives how the entry is consumed by readers.
-      - name: name
-        type: string
-        required: true
-        cli_position: 3
-        description: Short slug; sanitized to letters/digits/underscores/dashes.
-    stdin:
-      name: body
-      type: string
-      required: true
-      description: Markdown body of the entry. The script reads from stdin; MCP dispatcher passes this arg via the subprocess stdin pipe.
-  remove:
-    description: Delete an entry by name or slug.
-    args:
-      - name: name
-        type: string
-        required: true
-        cli_position: 2
-        description: Entry name (slug) or filename to delete.
+description: File-backed memory CLI (workstation-only). For cluster MCP contexts, use [[homelab-memory-pg]] instead — the file-backed store doesn't exist on cluster pods. This skill is sentinel-mode for the cluster MCP dispatcher; the bash script still works for direct laptop-side invocation.
+script: null
+args: []
 ---
 
-# Homelab Memory
+# Homelab Memory (file-backed, workstation-only)
 
-You are reading from or writing to the homelab's shared memory store. The store is the same `~/.claude/projects/-home-dan-Code/memory/` directory Claude Code's auto-memory has been writing to all along — but accessed via a stable CLI so other tools (opencode, n8n, OWUI filter functions) can use it without re-implementing the schema.
+> **Status note (2026-05-26, homelab#233):** This skill is **sentinel mode** for the cluster-resident MCP server — the dispatcher will not register it as a tool. The underlying bash script at `bin/homelab-memory.sh` still works when invoked directly from a workstation shell (Claude Code, opencode local bash tool, manual CLI). For cluster MCP dispatch — i.e. when called from OWUI, in-cluster opencode, or laptop-via-Tailscale — use [[homelab-memory-pg]] which is Postgres-backed and works in cluster context.
 
-This is a **storage primitive**, not a curatorial pattern. It does CRUD; it does not synthesize. For the synthesizing/wiki-maintaining pattern, see `homelab/architecture/` (which acts as the wiki layer).
+You are reading from or writing to the homelab's shared memory store via the file-backed CLI. The store is `~/.claude/projects/-home-dan-Code/memory/` — same directory Claude Code's auto-memory writes to.
+
+This is a **storage primitive**, not a curatorial pattern. It does CRUD; it does not synthesize.
 
 ## When to use this skill
 
 - **Read** memory before answering an operational question — `list` to scan, `show` for detail, `search` to find by substring.
 - **Add** a memory entry when you learn something durable: a user preference, a feedback note, a pointer to an external system, a project fact that future sessions should know.
 - **Remove** an entry when it's wrong, outdated, or duplicates a better one.
+- **Invoke from a workstation shell context** — Claude Code, opencode (laptop), or a direct CLI session. NOT from cluster MCP.
 
 The auto-memory rules from the system prompt still apply. Don't save things derivable from project state, code patterns, or git history. Memory is for non-obvious facts.
 
 ## When NOT to use it
 
+- **From cluster MCP dispatch context.** The file-backed store doesn't exist on cluster pods. Use `homelab-memory-pg` instead.
 - **Ephemeral, conversation-scoped notes** — they live in the conversation, not in memory.
 - **High-cardinality logs / metrics** — Loki and Prometheus, not memory.
 - **Secrets** — Infisical, not memory. The files are plaintext markdown.
@@ -100,6 +47,18 @@ The `add` subcommand reads the body from stdin. Pipe in a heredoc or echo for sh
 
 `<type>` is one of `user, feedback, project, reference` — same vocabulary Claude Code's auto-memory uses.
 
+## Subcommand reference (preserved from previous dispatcher metadata)
+
+The cluster MCP dispatcher no longer reads structured args from frontmatter for this skill (sentinel mode), but the CLI's behavior is documented here for direct callers:
+
+| Subcommand | Args (positional) | stdin | Notes |
+|---|---|---|---|
+| `list` | none | none | Lists every entry (type/name/description) |
+| `show` | `name` | none | Prints body, frontmatter stripped |
+| `search` | `query` | none | Case-insensitive substring across name + desc + body |
+| `add` | `type name` | body | Creates a new entry; `type` must be one of `user, feedback, project, reference` |
+| `remove` | `name` | none | Deletes the entry |
+
 ## Output contract
 
 - `list` and `search` print one row per entry: `<type>  <name>  <description>` aligned in fixed columns. Trivially parseable.
@@ -109,7 +68,8 @@ The `add` subcommand reads the body from stdin. Pipe in a heredoc or echo for sh
 
 ## Things that go wrong (and what to do)
 
-- **`memory dir does not exist`** — `$HOMELAB_MEMORY_DIR` points at a path that isn't there. Default is `~/.claude/projects/-home-dan-Code/memory/`. Override the env var to point at a real dir, or create the default.
+- **`ERROR: neither HOMELAB_MEMORY_DIR nor HOME is set`** — set one. Default `$HOME/.claude/projects/-home-dan-Code/memory/` resolves only when `$HOME` exists. Cluster contexts (which shouldn't be using this skill anyway — see status note) have no `$HOME` and hit this. Per skills#18.
+- **`memory dir does not exist`** — `$HOMELAB_MEMORY_DIR` points at a path that isn't there. Override the env var to point at a real dir, or create the default.
 - **`add: entry already exists`** — pick a different name or `remove` the existing one first. The CLI refuses to silently overwrite to prevent collisions across tools.
 - **`add: name produced empty slug`** — the name had only special chars. Use letters/digits/underscores/dashes.
 - **`add: stdin was empty`** — body is required. The CLI refuses to write empty entries.
@@ -131,12 +91,13 @@ How to apply: when this knowledge is relevant.
 EOF
 ```
 
-For OWUI filter functions calling this CLI: shell out from Python with `subprocess.run([..., "homelab-memory.sh", "list"], capture_output=True, text=True, check=True)`.
+For OWUI filter functions calling this CLI: shell out from Python with `subprocess.run([..., "homelab-memory.sh", "list"], capture_output=True, text=True, check=True)`. **But prefer `homelab-memory-pg` if the call is from an in-cluster Python context** — file-backed won't work.
 
 ## See also
 
-- Script source: `/home/dan/Code/homelab/bin/homelab-memory.sh` — full AI metadata header at top.
+- Postgres-backed sibling: [[homelab-memory-pg]] — the cluster-MCP-dispatchable version.
+- Script source: `bin/homelab-memory.sh` — full AI metadata header at top.
 - Tests: `/home/dan/Code/homelab/bin/tests/test_homelab_memory.sh` (16 cases, all green).
-- Architecture: `/home/dan/Code/homelab/architecture/local-ai-stack.md` — Tier 1's "memory injection" piece. This CLI is the foundation; the OWUI filter that calls it is the user-facing surface.
-- Sister: `homelab/architecture/` — the wiki layer Karpathy-style; complements memory.
+- Architecture: `/home/dan/Code/homelab/architecture/local-ai-stack.md` — Tier 1's "memory injection" piece.
+- Related: `homelab/architecture/` — the wiki layer Karpathy-style; complements memory.
 - Auto-memory rules from Claude Code's system prompt apply; the schema is shared.

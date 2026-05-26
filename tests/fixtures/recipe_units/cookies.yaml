@@ -1,0 +1,30 @@
+# Worked example: chocolate chip cookies.
+# Expected cart per the recipe-units skill's Example 1.
+recipe:
+  name: chocolate chip cookies
+  ingredients:
+    - "2¼ cups all-purpose flour"
+    - "1 tsp baking soda"
+    - "1 tsp salt"
+    - "1 cup butter"
+    - "¾ cup granulated sugar"
+    - "¾ cup brown sugar"
+    - "2 large eggs"
+    - "2 tsp vanilla extract"
+    - "2 cups chocolate chips"
+
+expected_cart:
+  # Items the cart SHOULD contain
+  include:
+    - "all-purpose flour"
+    - "butter"
+    - "large eggs"
+    - "vanilla extract"
+    - "chocolate chips"
+  # Pantry items that MUST be skipped
+  pantry_skipped:
+    - "baking soda"
+    - "salt"
+    - "granulated sugar"
+    - "brown sugar"
+  expected_item_count: 5

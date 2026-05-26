@@ -1,0 +1,35 @@
+# Worked example: chili (one-pot meal).
+recipe:
+  name: chili
+  ingredients:
+    - "1 lb ground beef"
+    - "1 large onion"
+    - "1 green bell pepper"
+    - "3 cloves garlic"
+    - "1 (15 oz) can kidney beans, drained"
+    - "1 (15 oz) can black beans, drained"
+    - "1 (28 oz) can crushed tomatoes"
+    - "2 tbsp chili powder"
+    - "1 tsp ground cumin"
+    - "1 tsp paprika"
+    - "Salt and pepper to taste"
+    - "Shredded cheddar for garnish"
+
+expected_cart:
+  include:
+    - "ground beef"
+    - "onion"
+    - "green bell pepper"
+    - "garlic"
+    - "kidney beans"
+    - "black beans"
+    - "crushed tomatoes"
+    - "chili powder"
+    - "ground cumin"
+    - "paprika"
+  pantry_skipped:
+    - "salt"
+    - "pepper"
+  garnish_skipped:
+    - "cheddar"
+  expected_item_count: 10

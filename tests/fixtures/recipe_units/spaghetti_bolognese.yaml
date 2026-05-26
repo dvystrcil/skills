@@ -1,0 +1,30 @@
+# Worked example: spaghetti bolognese (savory entree).
+recipe:
+  name: spaghetti bolognese
+  ingredients:
+    - "1 lb ground beef"
+    - "1 large onion"
+    - "2 cloves garlic"
+    - "1 (28 oz) can crushed tomatoes"
+    - "1 tbsp tomato paste"
+    - "1 tsp dried oregano"
+    - "½ tsp red pepper flakes"
+    - "Salt and pepper to taste"
+    - "1 lb dry spaghetti"
+    - "¼ cup olive oil"
+
+expected_cart:
+  include:
+    - "ground beef"
+    - "onion"
+    - "garlic"
+    - "crushed tomatoes"
+    - "tomato paste"
+    - "red pepper flakes"
+    - "dry spaghetti"
+  pantry_skipped:
+    - "dried oregano"
+    - "salt"
+    - "pepper"
+    - "olive oil"
+  expected_item_count: 7

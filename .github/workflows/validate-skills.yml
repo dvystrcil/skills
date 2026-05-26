@@ -12,6 +12,7 @@ on:
   pull_request:
     paths:
       - "owui/**/SKILL.md"
+      - "tests/**"
       - ".github/workflows/validate-skills.yml"
   workflow_dispatch: {}
 
@@ -64,3 +65,27 @@ jobs:
             exit 1
           fi
           echo "✓ All $checked owui/*/SKILL.md files have valid frontmatter."
+
+  python-skill-tests:
+    # Per-skill structural tests that go deeper than frontmatter — e.g.,
+    # recipe-units' pantry list shape + fixture-vs-rules consistency.
+    # Migrated from homelab/bin/tests/ in homelab#225 phase 1; tests live
+    # next to the code they validate.
+    runs-on: skills-runner
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+
+      - name: Discover + run tests/test_*.py
+        run: |
+          if [ ! -d tests ]; then
+            echo "no tests/ directory; nothing to run"
+            exit 0
+          fi
+          python3 -m unittest discover -s tests -p "test_*.py" -v

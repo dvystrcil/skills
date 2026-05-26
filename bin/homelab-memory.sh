@@ -89,7 +89,27 @@
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/lib/common.sh"
 
-MEM_DIR=${HOMELAB_MEMORY_DIR:-$HOME/.claude/projects/-home-dan-Code/memory}
+# Resolve the memory directory.
+#
+# Order:
+#   1. HOMELAB_MEMORY_DIR explicit override (preferred for non-laptop callers)
+#   2. ~/.claude/projects/-home-dan-Code/memory when $HOME is set
+#   3. Fail loud — without one of the above, the path expansion yields
+#      `/.claude/...` which silently misses the real store and produces
+#      a misleading "does not exist" error (skills#18 — the cluster MCP
+#      dispatch hit this when its bash shell had no $HOME).
+if [ -n "${HOMELAB_MEMORY_DIR:-}" ]; then
+    MEM_DIR="$HOMELAB_MEMORY_DIR"
+elif [ -n "${HOME:-}" ]; then
+    MEM_DIR="$HOME/.claude/projects/-home-dan-Code/memory"
+else
+    echo "ERROR: neither HOMELAB_MEMORY_DIR nor HOME is set." >&2
+    echo "       This script needs one to locate the memory store." >&2
+    echo "       Either:" >&2
+    echo "         export HOMELAB_MEMORY_DIR=/path/to/memory   (explicit)" >&2
+    echo "         export HOME=/home/<user>                    (laptop default)" >&2
+    exit 2
+fi
 INDEX="$MEM_DIR/MEMORY.md"
 
 print_usage() {

@@ -56,6 +56,14 @@ public repo is found lacking them. **Not optional once a repo is public.**
 > Private repos without GitHub Pro cannot apply branch protection — the
 > apply script detects this and skips that step.
 
+### CD repos use Rulesets with IU bypass
+
+Repos that argocd-image-updater pushes to (detected via `image-updater/` directory at the repo root) use a GitHub **Ruleset** named `main-protection-with-iu-bypass` instead of classic Branch Protection. The Ruleset enforces PR-review + no-force-push + no-deletion for humans, but the IU GitHub App is listed in `bypass_actors` so it can `git push origin main` directly.
+
+`apply.sh` creates/updates the Ruleset on CD repos (default IU app id `378815`; override with `IU_APP_ID` env var). `audit.sh` checks the Ruleset's existence + active enforcement + bypass actor.
+
+Convention established 2026-05-26 (homelab#238).
+
 ## Tooling
 
 Canonical scripts live in `~/Code/skills/repo-protections/bin/`:

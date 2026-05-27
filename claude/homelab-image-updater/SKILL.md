@@ -80,6 +80,41 @@ spec:
 
 If you find yourself trying to write a "manifestTargets that points at deployment.yaml", you're using the wrong tool. Use the kustomize writer instead and let it rewrite the kustomization's `images:` override.
 
+## Tag conventions (canonical homelab style)
+
+This split bites every new IU CR. Get it wrong and the regex silently never matches.
+
+| Source | Git tag | Image tag in registry |
+|---|---|---|
+| **Homelab self-built** (any of our `*-docker` repos) | `vX.Y.Z` | `X.Y.Z` (no `v`) |
+| **Vendor / upstream** images | n/a (theirs) | Whatever the vendor chose |
+
+Why the split: `docker/metadata-action`'s `type=semver,pattern={{version}}` **strips the `v` prefix by default** when retagging from a GitHub release. So our `release.yml` workflows convert `v0.0.4` (release) → `0.0.4` (image). Both intentional, both correct.
+
+For **vendor images** there is no convention to assume — match the actual tag format you see:
+
+| Vendor | Their image tags | IU CR shape |
+|---|---|---|
+| infisical/infisical | `v0.160.7` (v prefix) | regex `^v0\.160\.\d+$` |
+| cloudflare/cloudflared | `2026.5.0` (calver, no v) | constraint `:2026.x` |
+| ghcr.io/mealie-recipes/mealie | `v3.19.0` (v prefix) | regex `^v3\.[0-9]+\.[0-9]+$` |
+| ghcr.io/some-other | depends | check Docker Hub / ghcr first |
+
+**Verification commands when in doubt:**
+
+```bash
+# Docker Hub
+curl -sS https://hub.docker.com/v2/repositories/<image>/tags/?page_size=10 | jq '.results[].name'
+
+# GitHub release tags (likely v-prefixed)
+gh release list --repo <owner>/<repo>
+
+# Harbor (private — use a pod with the pullSecret)
+# Or look at one of our docker-release.yaml workflow runs to see what got pushed
+```
+
+**Rule:** match the SOURCE's actual image tag format in your regex / constraint. Don't copy-paste from a sibling IU CR unless the sibling tracks the same registry's images.
+
 ## Constraint mechanics
 
 Two things constrain which tag image-updater will bump to:

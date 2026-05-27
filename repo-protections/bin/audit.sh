@@ -32,6 +32,13 @@ audit_one() {
   local meta
   meta=$(gh api "repos/$repo" 2>/dev/null) || { echo "  not accessible"; fail=1; return; }
 
+  # Detect CD repos (image-updater writeback targets) — branch protection
+  # there blocks the IU controller's git push. See feedback_cd_repos_must_not_be_branch_protected.
+  local is_cd_repo=0
+  if gh api "repos/$repo/contents/image-updater" >/dev/null 2>&1; then
+    is_cd_repo=1
+  fi
+
   local vis lic merge sq rb del def autom issues fork parent
   vis=$(echo "$meta" | jq -r '.visibility')
   lic=$(echo "$meta" | jq -r '.license.spdx_id // "NONE"')
@@ -85,7 +92,8 @@ audit_one() {
     check "license file"             "missing"  "present"
   fi
 
-  # Other required files
+  # Required files. CD repos still need CODEOWNERS — the Ruleset's
+  # require_code_owner_review rule depends on it.
   for path in README.md .github/CODEOWNERS; do
     if gh api "repos/$repo/contents/$path" >/dev/null 2>&1; then
       check "file: $path"            "present"  "present"
@@ -94,12 +102,43 @@ audit_one() {
     fi
   done
 
-  # Branch protection — only meaningful for public repos OR private-on-Pro.
-  # Always check the actual default branch (which may be 'main', 'master',
-  # 'release', etc. — especially on forks).
+  # Branch protection / Ruleset.
+  # Non-CD repos: classic Branch Protection on default branch.
+  # CD repos: Ruleset with IU app bypass (humans go through PRs, IU pushes directly).
   local prot
   prot=$(gh api "repos/$repo/branches/$def/protection" 2>/dev/null || echo "")
-  if [ -z "$prot" ] || echo "$prot" | grep -q '"message"'; then
+  if [ "$is_cd_repo" = "1" ]; then
+    # Rulesets aren't available on private repos without GitHub Pro.
+    # Probe the list endpoint; if 403, mark as n/a (informational, not drift).
+    if ! gh api "repos/$repo/rulesets" >/dev/null 2>&1; then
+      if [ "$vis" = "private" ]; then
+        printf "  \033[33m·\033[0m %-32s n/a (private CD repo, no Pro)\n" "Ruleset (IU bypass)"
+      else
+        check "Ruleset (IU bypass) — fetch error" "error" "ok"
+      fi
+      echo
+      return
+    fi
+    # Check for canonical Ruleset on CD repos
+    local ruleset_id
+    ruleset_id=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name=="main-protection-with-iu-bypass") | .id' 2>/dev/null || echo "")
+    if [ -z "$ruleset_id" ]; then
+      check "Ruleset (IU bypass)" "absent" "present"
+    else
+      # Verify the bypass actor includes the IU app
+      local ruleset
+      ruleset=$(gh api "repos/$repo/rulesets/$ruleset_id" 2>/dev/null)
+      local enforcement bypass
+      enforcement=$(echo "$ruleset" | jq -r '.enforcement')
+      bypass=$(echo "$ruleset" | jq -r '.bypass_actors[] | select(.actor_type=="Integration") | .actor_id' | head -1)
+      check "Ruleset enforcement"   "$enforcement" "active"
+      if [ -n "$bypass" ]; then
+        printf "  \033[32m✓\033[0m %-32s app id=%s\n" "Ruleset IU bypass" "$bypass"
+      else
+        check "Ruleset IU bypass" "missing" "present"
+      fi
+    fi
+  elif [ -z "$prot" ] || echo "$prot" | grep -q '"message"'; then
     if [ "$vis" = "private" ]; then
       printf "  \033[33m·\033[0m %-32s n/a (private repo, no Pro)\n" "branch protection"
     else

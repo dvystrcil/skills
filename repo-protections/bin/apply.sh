@@ -41,6 +41,20 @@ owner=${REPO%%/*}
 
 echo "    default branch: $default_branch  (visibility: $visibility)"
 
+# Detect CD repos (image-updater writeback targets). Branch protection on
+# these blocks the IU controller's `git push origin main` with GH006. We
+# instead apply a Branch Ruleset that bypasses the IU GitHub App but still
+# enforces PR review for humans. See feedback_cd_repos_must_not_be_branch_protected.
+#
+# IU_APP_ID env var overrides the default homelab IU app id (the argocd
+# repo-creds secret labeled argocd.argoproj.io/secret-type=repo-creds).
+IU_APP_ID="${IU_APP_ID:-378815}"
+is_cd_repo=0
+if gh api "repos/$REPO/contents/image-updater" >/dev/null 2>&1; then
+  is_cd_repo=1
+  echo "    DETECTED: image-updater/ directory — treating as CD repo (will use Ruleset, not Branch Protection)"
+fi
+
 # --- Repo-level settings ---
 echo "==> Updating repo settings"
 gh api -X PATCH "repos/$REPO" \
@@ -52,8 +66,84 @@ gh api -X PATCH "repos/$REPO" \
   -F has_issues=true >/dev/null
 
 # --- Branch protection on default branch ---
-# Only works on public repos (or private + GitHub Pro). Detect and skip gracefully.
+# For CD repos: apply a Ruleset with IU app bypass (humans go through PRs,
+# IU pushes directly). For non-CD repos: apply classic Branch Protection.
 echo "==> Applying branch protection on '$default_branch'"
+if [ "$is_cd_repo" = "1" ]; then
+  # Rulesets are unavailable on private repos without GitHub Pro. Detect
+  # via a probing list call — if it 403s, skip protection gracefully (same
+  # as the classic Branch Protection skip below).
+  if ! gh api "repos/$REPO/rulesets" >/dev/null 2>&1; then
+    if [ "$visibility" = "private" ]; then
+      echo "    SKIPPED — private repo without GitHub Pro can't use Rulesets (or Branch Protection)"
+      echo
+      echo "Done. Run audit.sh $REPO to confirm."
+      exit 0
+    else
+      echo "    FAILED — could not list rulesets on a public repo (auth or network issue):" >&2
+      gh api "repos/$REPO/rulesets" >&2 || true
+      exit 1
+    fi
+  fi
+
+  # Check if a ruleset already exists with the canonical name (idempotent).
+  ruleset_name="main-protection-with-iu-bypass"
+  existing_id=$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$ruleset_name\") | .id" 2>/dev/null || echo "")
+
+  ruleset_payload=$(jq -nc \
+    --arg name "$ruleset_name" \
+    --arg branch "$default_branch" \
+    --argjson app_id "$IU_APP_ID" \
+    '{
+      name: $name,
+      target: "branch",
+      enforcement: "active",
+      bypass_actors: [{actor_id: $app_id, actor_type: "Integration", bypass_mode: "always"}],
+      conditions: {ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}},
+      rules: [
+        {type: "deletion"},
+        {type: "non_fast_forward"},
+        {type: "pull_request", parameters: {
+          required_approving_review_count: 1,
+          dismiss_stale_reviews_on_push: true,
+          require_code_owner_review: true,
+          require_last_push_approval: false,
+          required_review_thread_resolution: false
+        }}
+      ]
+    }')
+
+  if [ -n "$existing_id" ]; then
+    echo "    Ruleset '$ruleset_name' already exists (id=$existing_id); updating to match canonical shape"
+    if echo "$ruleset_payload" | gh api -X PUT \
+         -H "Accept: application/vnd.github+json" \
+         "repos/$REPO/rulesets/$existing_id" \
+         --input - >/dev/null 2>&1; then
+      echo "    Ruleset updated (IU app id=$IU_APP_ID bypasses)"
+    else
+      echo "    FAILED to update ruleset" >&2
+      exit 1
+    fi
+  else
+    if echo "$ruleset_payload" | gh api -X POST \
+         -H "Accept: application/vnd.github+json" \
+         "repos/$REPO/rulesets" \
+         --input - >/dev/null 2>&1; then
+      echo "    Ruleset created (IU app id=$IU_APP_ID bypasses)"
+    else
+      echo "    FAILED to create ruleset:" >&2
+      echo "$ruleset_payload" | gh api -X POST \
+        -H "Accept: application/vnd.github+json" \
+        "repos/$REPO/rulesets" \
+        --input - >&2 || true
+      exit 1
+    fi
+  fi
+
+  echo
+  echo "Done. Run audit.sh $REPO to confirm."
+  exit 0
+fi
 protection_payload=$(cat <<'JSON'
 {
   "required_status_checks": null,

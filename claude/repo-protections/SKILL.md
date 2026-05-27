@@ -96,6 +96,31 @@ a service) don't need this.
 > Private repos without GitHub Pro **can't** apply branch protection. The
 > apply script will detect this and skip the protection step gracefully.
 
+### CD repos (image-updater writeback targets) use Rulesets with IU bypass
+
+Repos that argocd-image-updater pushes to directly (`writeBackConfig.gitConfig.repository`) CAN have branch protection — but it must be a **GitHub Ruleset** with the IU GitHub App in the `bypass_actors` list, not classic Branch Protection. Classic Branch Protection rejects the IU's `git push origin main` with `GH006`. Rulesets support per-actor bypass, so:
+
+- **Humans** still go through PRs (PR review, CODEOWNERS gate, no force-push, no deletion)
+- **IU controller** pushes directly to main via its GitHub App authentication
+
+`apply.sh` and `audit.sh` both detect CD repos by looking for an `image-updater/` directory at the repo root. When present:
+
+- `apply.sh` creates (or updates) a Ruleset named `main-protection-with-iu-bypass` with rules:
+  - `deletion` (no branch delete)
+  - `non_fast_forward` (no force-push)
+  - `pull_request` (1 review, dismiss stale, require code-owner review)
+
+  …and a single bypass actor: the homelab IU GitHub App (default `app_id=378815`; override with `IU_APP_ID` env var if your installation uses a different one).
+- `audit.sh` checks that the canonical Ruleset exists, is `active`, and has the IU app in the bypass list. CODEOWNERS is still required (the Ruleset's `require_code_owner_review` depends on it).
+
+This convention was established 2026-05-26 (homelab#238) after the initial "skip protection on CD repos" approach turned out to be unnecessarily permissive. Rulesets give us the protection AND IU's direct-push.
+
+**Identifying the IU app id:** the homelab's argocd-image-updater authenticates via a GitHub App stored in argocd's `creds-*` repo-credentials secret (labeled `argocd.argoproj.io/secret-type=repo-creds`). Decode the `githubAppID` value from base64. For the homelab default it's `378815`.
+
+**Detection edge cases:**
+- A repo with its own `image-updater/` directory IS treated as a CD repo (catches both pure CD repos and mixed-shape `-docker` repos that hold their own IU CR)
+- A repo named as `writeBackConfig.gitConfig.repository` but where the CR lives elsewhere will NOT be auto-detected. If you create such a layout, either move the CR into the CD repo (the canonical distributed-IU pattern) or manually run `apply.sh` with `is_cd_repo=1` mode.
+
 ## How to use this skill
 
 ### Quick path — for a brand-new repo you just created

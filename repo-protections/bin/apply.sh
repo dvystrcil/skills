@@ -70,6 +70,19 @@ gh api -X PATCH "repos/$REPO" \
 # IU pushes directly). For non-CD repos: apply classic Branch Protection.
 echo "==> Applying branch protection on '$default_branch'"
 if [ "$is_cd_repo" = "1" ]; then
+  # Conversion case: if this repo previously ran through apply.sh as a
+  # non-CD repo (before the image-updater/ directory existed), classic
+  # Branch Protection is still in place. Classic and Ruleset enforce in
+  # parallel — classic has no per-actor bypass list, so IU's push still
+  # gets rejected with GH006 even though the Ruleset bypass is correct.
+  # Strip classic protection first so only the Ruleset (with IU bypass)
+  # remains. Idempotent: 404 if already absent, swallow it.
+  if gh api "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1; then
+    echo "    STRIPPING stale classic Branch Protection (conflicts with Ruleset bypass)"
+    gh api -X DELETE "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1 \
+      || { echo "    FAILED to delete classic protection" >&2; exit 1; }
+  fi
+
   # Rulesets are unavailable on private repos without GitHub Pro. Detect
   # via a probing list call — if it 403s, skip protection gracefully (same
   # as the classic Branch Protection skip below).

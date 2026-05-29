@@ -119,6 +119,15 @@ audit_one() {
       echo
       return
     fi
+    # CD repos must NOT have classic Branch Protection: it enforces
+    # alongside the Ruleset and has no per-actor bypass list, so IU's
+    # `git push` fails with GH006 even when the Ruleset bypass is correct.
+    # See feedback_cd_repos_must_not_be_branch_protected (conversion gap).
+    if [ -n "$prot" ] && ! echo "$prot" | grep -q '"message"'; then
+      check "no classic protection (CD)" "present" "absent"
+    else
+      printf "  \033[32m✓\033[0m %-32s %s\n" "no classic protection (CD)" "absent"
+    fi
     # Check for canonical Ruleset on CD repos
     local ruleset_id
     ruleset_id=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name=="main-protection-with-iu-bypass") | .id' 2>/dev/null || echo "")

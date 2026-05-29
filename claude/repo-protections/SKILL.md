@@ -111,7 +111,9 @@ Repos that argocd-image-updater pushes to directly (`writeBackConfig.gitConfig.r
   - `pull_request` (1 review, dismiss stale, require code-owner review)
 
   …and a single bypass actor: the homelab IU GitHub App (default `app_id=378815`; override with `IU_APP_ID` env var if your installation uses a different one).
-- `audit.sh` checks that the canonical Ruleset exists, is `active`, and has the IU app in the bypass list. CODEOWNERS is still required (the Ruleset's `require_code_owner_review` depends on it).
+
+  **Conversion case:** if a non-CD repo later becomes a CD repo (i.e. the deploy scaffold PR adds `image-updater/` after `apply.sh` had already installed classic Branch Protection), the next `apply.sh` run also strips the stale classic protection. Without that, classic and Ruleset enforce in parallel — classic has no per-actor bypass list, so IU's push fails with `GH006` even though the Ruleset bypass is correct. Burned 2026-05-29 on `dvystrcil/tor-character-mcp` and `dvystrcil/tor-dice`.
+- `audit.sh` checks that the canonical Ruleset exists, is `active`, has the IU app in the bypass list, **and that classic Branch Protection is absent** (would conflict with the Ruleset bypass). CODEOWNERS is still required (the Ruleset's `require_code_owner_review` depends on it).
 
 This convention was established 2026-05-26 (homelab#238) after the initial "skip protection on CD repos" approach turned out to be unnecessarily permissive. Rulesets give us the protection AND IU's direct-push.
 

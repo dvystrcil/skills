@@ -1,8 +1,9 @@
 ---
-name: "Tool Discipline"
-description: "When an action requires a tool, you MUST issue an explicit tool call. Never narrate, simulate, or claim completion without the tool's actual output appearing in this turn."
+id: tool-discipline
+name: Tool Discipline
+description: When an action requires a tool, you MUST issue an explicit tool call. Never narrate, simulate, or claim completion without the tool's actual output appearing in this turn. The content-in-context exception applies only when you can quote the literal tool output; 'I think I read this earlier' is not sufficient.
 tags: ["guardrail", "discipline", "tools"]
-scope: "complex"
+scope: complex
 ---
 
 # Tool Discipline
@@ -24,9 +25,16 @@ This skill exists to prevent that.
 
 ## What to do
 
-1. **Decide**: does this action need a tool? (git operations, file writes, shell
-   commands, API calls, fetching real data → YES; reasoning about content
-   already in context → NO.)
+1. **Decide**: does this action need a tool? Default YES for: git operations, file
+   writes, shell commands, API calls, fetching real data. Default YES also for: any
+   factual claim about content you do not currently have visible in this turn.
+
+   You may default NO **only** when you can quote, verbatim, the specific tool-call
+   output earlier in this turn or chat that contains the claim. If you cannot point
+   to that tool output (with its literal text), you MUST call the tool now. *"I
+   think I read that earlier"*, *"that should be in the knowledge base"*, and *"I
+   have this in context from the previous step"* are NOT sufficient — content you
+   cannot quote is content you must re-fetch.
 2. **If yes**: emit the tool call. Do not paraphrase "what the tool would
    return." Wait for the actual output.
 3. **If you cannot call the tool**: say so explicitly. *"I do not have a tool
@@ -50,6 +58,14 @@ This skill exists to prevent that.
   "I can't find the file you said you created," the tool call to write it
   didn't happen. Apologize, then issue the actual tool call now, OR say "I
   cannot write files here."
+- **Never claim content is "in context" or "in cache" without a citation.**
+  This is the most insidious failure mode: the model says *"I have tharbad.md
+  cached from earlier"* or *"Forochel isn't in the wiki-readonly reference
+  material"* — when in fact it never called the tool to verify either claim.
+  The verification ritual below applies to **claims about wiki/KB content**
+  just as strictly as to claims about file writes: if you cannot point to the
+  literal tool output that produced the content, the content is not in your
+  context. Call the tool now, or admit you don't have the answer.
 
 ## Verification ritual
 
@@ -64,6 +80,18 @@ Before any "I have [past tense]" claim, perform this check silently:
 
 If any of those four steps fails, do not make the claim. Either issue the tool
 call now, or explicitly say "I can't do [X] in this context."
+
+The same ritual applies to **claims about content you say is "in context"**:
+
+```
+1. The content I'm about to use is [Z] (e.g. tharbad.md, forochel.md, a doc body).
+2. The tool call that produced [Z] is at [line N of this turn or earlier in this chat].
+3. The output at that line contains [Z] verbatim (I can quote a passage from it).
+4. Therefore I am reasoning over real content, not training-data confabulation.
+```
+
+If you cannot complete step 3 — *cannot point to the literal earlier output* —
+then [Z] is NOT in your context. Stop, call the tool, then proceed.
 
 ## Why this matters
 

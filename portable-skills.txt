@@ -22,3 +22,4 @@ repo-protections
 scheduler
 tdd
 test-architect
+three-anchor-truthiness

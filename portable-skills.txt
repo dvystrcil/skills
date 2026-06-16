@@ -7,12 +7,17 @@
 # don't exist under claude/<name>/ are assumed to come from a different
 # source (e.g. Anthropic's skill registry) and the install logs a note.
 #
-# Homelab-specific skills (homelab-memory, owui-import-pipeline,
+# Homelab-specific skills (homelab-memory, homelab-memory-pg, homelab-secrets,
+# homelab-image-updater, owui-import-pipeline, owui-memory-loader,
 # pgo-pre-upgrade-backup, upgrade-validate, n8n-import-workflow,
-# owui-memory-loader, devops-engineer) are intentionally OMITTED — they
-# reference infrastructure that doesn't exist on the work workstation.
+# devops-engineer) are intentionally OMITTED — they reference infrastructure
+# that doesn't exist on the work workstation. Where a homelab skill carries
+# portable methodology, the generic version is listed below instead:
+#   upgrade-validate  -> change-validation
+#   homelab-secrets   -> secrets-hygiene
 
 adopt-third-party-container
+change-validation
 code-reviewer
 diary
 doc-master
@@ -21,6 +26,7 @@ first-ask
 frontend-design
 repo-protections
 scheduler
+secrets-hygiene
 tdd
 test-architect
 three-anchor-truthiness

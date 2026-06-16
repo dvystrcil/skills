@@ -25,7 +25,7 @@ You are performing a code review of the changes on the current branch or the fil
 - `runAsNonRoot: true` in securityContext unless there's a documented reason
 - Labels: `app`, `app.kubernetes.io/name`, and `app.kubernetes.io/managed-by` present
 - ArgoCD: `ignoreDifferences` used correctly — not masking real drift
-- Secrets managed via InfisicalSecret or sealed-secrets, never plain Secret with data in Git
+- Secrets managed via your secret manager (External Secrets, Vault/VSO, Infisical, sealed-secrets, SOPS) — never a plain `Secret`/`ConfigMap` with the value in git (see `secrets-hygiene`)
 - Images pinned to a digest or semver tag, not `:latest` in production manifests
 
 ### GitHub Actions / CI

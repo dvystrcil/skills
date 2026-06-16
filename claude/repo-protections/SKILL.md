@@ -18,7 +18,7 @@ should be closed within the same session it's noticed.
 
 - **MIT** for original repos, with copyright line `Copyright (c) <YEAR> Daniel Vystrcil`
 - File at repo root, named `LICENSE` (no extension)
-- Template lives at `~/Code/skills/repo-protections/templates/LICENSE`
+- Template lives at `<skills-repo>/repo-protections/templates/LICENSE` (resolve `<skills-repo>` via the symlink — see "How to use" below; don't hardcode `~/Code/skills`)
 - In the README, link the word "MIT" to `LICENSE` — bare text won't render as a link
 
 **Forks are exempt from the license + default-branch rules.** A fork keeps
@@ -128,25 +128,30 @@ This convention was established 2026-05-26 (homelab#238) after the initial "skip
 ### Quick path — for a brand-new repo you just created
 
 ```bash
+# 0. Resolve the skills-repo root from the symlink — works no matter where
+#    dvystrcil/skills was cloned (default ~/Code/skills; a portable install
+#    may clone it elsewhere via SKILLS_REPO_DIR). Do NOT hardcode ~/Code/skills.
+SKILLS_REPO="$(cd "$(dirname "$(readlink -f ~/.claude/skills/repo-protections)")/../.." && pwd)"
+
 # 1. Audit current state
-~/Code/skills/repo-protections/bin/audit.sh dvystrcil/<repo>
+"$SKILLS_REPO/repo-protections/bin/audit.sh" dvystrcil/<repo>
 
 # 2. If files are missing locally, add them
-cp ~/Code/skills/repo-protections/templates/CODEOWNERS .github/CODEOWNERS
-sed "s/{{YEAR}}/$(date +%Y)/" ~/Code/skills/repo-protections/templates/LICENSE > LICENSE
+cp "$SKILLS_REPO/repo-protections/templates/CODEOWNERS" .github/CODEOWNERS
+sed "s/{{YEAR}}/$(date +%Y)/" "$SKILLS_REPO/repo-protections/templates/LICENSE" > LICENSE
 git add LICENSE .github/CODEOWNERS && git commit -m "chore: add LICENSE + CODEOWNERS" && git push
 
 # 3. Apply GH-side settings
-~/Code/skills/repo-protections/bin/apply.sh dvystrcil/<repo>
+"$SKILLS_REPO/repo-protections/bin/apply.sh" dvystrcil/<repo>
 
 # 4. Re-audit to confirm
-~/Code/skills/repo-protections/bin/audit.sh dvystrcil/<repo>
+"$SKILLS_REPO/repo-protections/bin/audit.sh" dvystrcil/<repo>
 ```
 
 ### Periodic drift audit
 
 ```bash
-~/Code/skills/repo-protections/bin/audit.sh --all
+"$SKILLS_REPO/repo-protections/bin/audit.sh" --all   # $SKILLS_REPO resolved as in the Quick path above
 ```
 
 Lists every public repo with PASS/FAIL per dimension.
@@ -185,9 +190,9 @@ Skills live in [`dvystrcil/skills`](https://github.com/dvystrcil/skills):
 - **`owui/repo-protections/SKILL.md`** — OWUI flavor (with `tags` + `scope` frontmatter)
 - **`repo-protections/bin/`** + **`repo-protections/templates/`** — shared executables and templates, referenced by both flavors
 
-Locally on the operator's machine:
+Locally:
 
-- `~/.claude/skills/repo-protections` → symlinked to `~/Code/skills/claude/repo-protections/`
-- The `bin/` scripts are invoked via the absolute path `~/Code/skills/repo-protections/bin/{audit,apply}.sh`
+- `~/.claude/skills/repo-protections` → symlinked to `<skills-repo>/claude/repo-protections/` (`<skills-repo>` defaults to `~/Code/skills`; a portable install may clone it elsewhere)
+- The `bin/` scripts live at `<skills-repo>/repo-protections/bin/{audit,apply}.sh` — resolve `<skills-repo>` from the symlink (see "How to use"), never hardcode the path
 
 Keep the two SKILL.md flavors in sync when the convention changes.

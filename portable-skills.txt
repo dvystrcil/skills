@@ -12,6 +12,7 @@
 # owui-memory-loader, devops-engineer) are intentionally OMITTED — they
 # reference infrastructure that doesn't exist on the work workstation.
 
+adopt-third-party-container
 code-reviewer
 diary
 doc-master

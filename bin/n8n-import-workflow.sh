@@ -146,6 +146,18 @@ POD=$(kubectl -n "$NS" get pods \
 [ -n "$POD" ] || err "no Running pod found for deploy/$DEPLOY in namespace $NS"
 log_step 1 3 "resolving n8n pod" "$POD"
 
+# Detect the n8n major version — the CLI surface changed at 2.0:
+#   - import:workflow gained --activeState (DEFAULT 'false' deactivates ALL
+#     imported workflows); pass 'fromJson' to honor each JSON's active field,
+#     which is the 1.x behavior we rely on.
+#   - update:workflow is deprecated → publish:workflow for activation.
+# Default to 1.x semantics if the version can't be parsed (safe: leaves the
+# existing 1.x code paths untouched).
+N8N_VER=$(kubectl -n "$NS" exec "$POD" -c "$CONTAINER" -- "$N8N_BIN" --version 2>/dev/null | tr -d '[:space:]')
+N8N_MAJOR=${N8N_VER%%.*}
+case "$N8N_MAJOR" in ''|*[!0-9]*) N8N_MAJOR=1 ;; esac
+log_info "n8n version: ${N8N_VER:-unknown} (major ${N8N_MAJOR})"
+
 # ---- step 2: collect JSON files + import ----
 
 declare -a FILES
@@ -195,7 +207,12 @@ for f in "${FILES[@]}"; do
     kubectl -n "$NS" cp "$f" "$POD:$pod_path" -c "$CONTAINER" >/dev/null 2>&1 || \
         err "kubectl cp into pod failed for $base"
 
-    out=$(kubectl -n "$NS" exec "$POD" -c "$CONTAINER" -- "$N8N_BIN" import:workflow --input="$pod_path" 2>&1) || \
+    # On 2.x, import:workflow defaults to --activeState false (deactivates
+    # everything); --activeState=fromJson restores 1.x behavior (the JSON's
+    # active field governs). Empty on 1.x — the flag doesn't exist there.
+    active_state_flag=""
+    [ "$N8N_MAJOR" -ge 2 ] && active_state_flag="--activeState=fromJson"
+    out=$(kubectl -n "$NS" exec "$POD" -c "$CONTAINER" -- "$N8N_BIN" import:workflow --input="$pod_path" $active_state_flag 2>&1) || \
         { log_info "$out"; err "n8n import:workflow failed for $base"; }
     # The CLI emits "Successfully imported N workflow." — anything else is a yellow flag we'd want to see.
     echo "$out" | grep -qE 'Successfully imported [0-9]+ workflow' || \
@@ -270,9 +287,17 @@ if [ "$activate" = "1" ]; then
         name=$(jq -r '.name' "$f")
         wf_id=$(echo "$ids_lines" | grep -F "|$name" | head -1 | cut -d'|' -f1)
         [ -n "$wf_id" ] || err "could not resolve workflow id for '$name'"
-        kubectl -n "$NS" exec "$POD" -c "$CONTAINER" -- \
-            "$N8N_BIN" update:workflow --id="$wf_id" --active=true >/dev/null 2>&1 || \
-            err "activation failed for '$name' (id=$wf_id)"
+        # 2.x: update:workflow is deprecated; publishing is what makes a
+        # workflow's triggers run. 1.x: keep update:workflow --active=true.
+        if [ "$N8N_MAJOR" -ge 2 ]; then
+            kubectl -n "$NS" exec "$POD" -c "$CONTAINER" -- \
+                "$N8N_BIN" publish:workflow --id="$wf_id" >/dev/null 2>&1 || \
+                err "publish failed for '$name' (id=$wf_id)"
+        else
+            kubectl -n "$NS" exec "$POD" -c "$CONTAINER" -- \
+                "$N8N_BIN" update:workflow --id="$wf_id" --active=true >/dev/null 2>&1 || \
+                err "activation failed for '$name' (id=$wf_id)"
+        fi
         log_info "activated: $name (id=$wf_id)"
     done
 

@@ -16,8 +16,9 @@ description: Strict GitOps workflow for every repo change — branch, rebase, te
    - How to test it
    - Dependencies/configuration notes
    - Known limitations or follow-up work
-6. **Never merge your own PR.** Await user review and approval.
-7. **Never `git push --force`** on any shared branch.
+6. **Wait for PR checks after creating any PR**: `gh pr checks <url> --watch --fail-fast`. A red check gets fixed on the same branch before you report done. "No checks reported" passes; red does not.
+7. **Never merge your own PR.** Await user review and approval.
+8. **Never `git push --force`** on any shared branch.
 
 ## Why this is absolute here
 

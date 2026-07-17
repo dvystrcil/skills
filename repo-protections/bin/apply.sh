@@ -111,7 +111,14 @@ if [ "$is_cd_repo" = "1" ]; then
       name: $name,
       target: "branch",
       enforcement: "active",
-      bypass_actors: [{actor_id: $app_id, actor_type: "Integration", bypass_mode: "always"}],
+      bypass_actors: [
+        {actor_id: $app_id, actor_type: "Integration", bypass_mode: "always"},
+        # Repository admin (role id 5): a solo operator authors every PR
+        # and GitHub forbids self-approval, so without an admin bypass the
+        # owner can never merge their own PRs into a CD repo. Keeps review
+        # as the default gate; admin bypasses when needed. (homelab, 2026-07-17)
+        {actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always"}
+      ],
       conditions: {ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}},
       rules: [
         {type: "deletion"},

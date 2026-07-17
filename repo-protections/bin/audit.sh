@@ -140,11 +140,20 @@ audit_one() {
       local enforcement bypass
       enforcement=$(echo "$ruleset" | jq -r '.enforcement')
       bypass=$(echo "$ruleset" | jq -r '.bypass_actors[] | select(.actor_type=="Integration") | .actor_id' | head -1)
+      local admin_bypass
+      admin_bypass=$(echo "$ruleset" | jq -r '.bypass_actors[] | select(.actor_type=="RepositoryRole" and .actor_id==5) | .actor_id' | head -1)
       check "Ruleset enforcement"   "$enforcement" "active"
       if [ -n "$bypass" ]; then
         printf "  \033[32m✓\033[0m %-32s app id=%s\n" "Ruleset IU bypass" "$bypass"
       else
         check "Ruleset IU bypass" "missing" "present"
+      fi
+      # Solo operator can't merge own PRs without an admin bypass (the
+      # review requirement is otherwise unsatisfiable). See apply.sh.
+      if [ -n "$admin_bypass" ]; then
+        printf "  \033[32m✓\033[0m %-32s role id=5\n" "Ruleset admin bypass"
+      else
+        check "Ruleset admin bypass" "missing" "present"
       fi
     fi
   elif [ -z "$prot" ] || echo "$prot" | grep -q '"message"'; then

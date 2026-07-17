@@ -110,7 +110,7 @@ Repos that argocd-image-updater pushes to directly (`writeBackConfig.gitConfig.r
   - `non_fast_forward` (no force-push)
   - `pull_request` (1 review, dismiss stale, require code-owner review)
 
-  …and a single bypass actor: the homelab IU GitHub App (default `app_id=378815`; override with `IU_APP_ID` env var if your installation uses a different one).
+  …and two bypass actors: the homelab IU GitHub App (default `app_id=378815`; override with `IU_APP_ID`) **and Repository admin (RepositoryRole id 5)**. The admin bypass is load-bearing for a solo operator: GitHub forbids self-approving your own PR, so without it the owner can never merge their own PRs into a CD repo (the review requirement is unsatisfiable). `audit.sh` checks for both.
 
   **Conversion case:** if a non-CD repo later becomes a CD repo (i.e. the deploy scaffold PR adds `image-updater/` after `apply.sh` had already installed classic Branch Protection), the next `apply.sh` run also strips the stale classic protection. Without that, classic and Ruleset enforce in parallel — classic has no per-actor bypass list, so IU's push fails with `GH006` even though the Ruleset bypass is correct. Burned 2026-05-29 on `dvystrcil/tor-character-mcp` and `dvystrcil/tor-dice`.
 - `audit.sh` checks that the canonical Ruleset exists, is `active`, has the IU app in the bypass list, **and that classic Branch Protection is absent** (would conflict with the Ruleset bypass). CODEOWNERS is still required (the Ruleset's `require_code_owner_review` depends on it).

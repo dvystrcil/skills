@@ -207,12 +207,13 @@ for f in "${FILES[@]}"; do
     kubectl -n "$NS" cp "$f" "$POD:$pod_path" -c "$CONTAINER" >/dev/null 2>&1 || \
         err "kubectl cp into pod failed for $base"
 
-    # On 2.x, import:workflow defaults to --activeState false (deactivates
-    # everything); --activeState=fromJson restores 1.x behavior (the JSON's
-    # active field governs). Empty on 1.x — the flag doesn't exist there.
-    active_state_flag=""
-    [ "$N8N_MAJOR" -ge 2 ] && active_state_flag="--activeState=fromJson"
-    out=$(kubectl -n "$NS" exec "$POD" -c "$CONTAINER" -- "$N8N_BIN" import:workflow --input="$pod_path" $active_state_flag 2>&1) || \
+    # Plain import in both 1.x and 2.x. We deliberately do NOT pass 2.x's
+    # --activeState=fromJson: it is rejected in regular/single-main deployment
+    # mode ("can only be used when n8n is running in queue or multi-main mode"),
+    # which is how the homelab runs n8n. import deactivates null-active
+    # workflows in both versions; the --activate path below re-activates
+    # (publish:workflow on 2.x, update:workflow on 1.x) + restarts the scheduler.
+    out=$(kubectl -n "$NS" exec "$POD" -c "$CONTAINER" -- "$N8N_BIN" import:workflow --input="$pod_path" 2>&1) || \
         { log_info "$out"; err "n8n import:workflow failed for $base"; }
     # The CLI emits "Successfully imported N workflow." — anything else is a yellow flag we'd want to see.
     echo "$out" | grep -qE 'Successfully imported [0-9]+ workflow' || \

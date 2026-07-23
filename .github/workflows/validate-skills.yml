@@ -6,12 +6,20 @@ name: validate-skills
 # Claude, human) ships without frontmatter — sync_to_owui then SKIPs +
 # errors, the hourly CronJob fails, and the new skill never reaches OWUI.
 #
+# Also gates claude/*/SKILL.md via the python-skill-tests job below
+# (tests/test_skill_schema.py) — the cluster-resident MCP dispatcher
+# reads that frontmatter to derive its tool schema, so malformed input
+# there breaks MCP dispatch silently the same way. The test already
+# existed; this workflow just wasn't triggering on the paths it covers
+# (caught 2026-07-23 reviewing an unrelated claude/git-workflow PR).
+#
 # Validator lives upstream of that failure: PR-time, blocking, fast.
 
 on:
   pull_request:
     paths:
       - "owui/**/SKILL.md"
+      - "claude/**/SKILL.md"
       - "tests/**"
       - ".github/workflows/validate-skills.yml"
   workflow_dispatch: {}

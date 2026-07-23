@@ -16,9 +16,13 @@ description: Strict GitOps workflow for every repo change — branch, rebase, te
    - How to test it
    - Dependencies/configuration notes
    - Known limitations or follow-up work
-6. **Wait for PR checks after creating any PR**: `gh pr checks <url> --watch --fail-fast`. A red check gets fixed on the same branch before you report done. "No checks reported" passes; red does not.
+6. **Wait for PR checks after creating any PR**: `gh pr checks <url> --watch --fail-fast`. A red check gets fixed on the same branch before you report done. "No checks reported" passes — **but check first whether that's a real gap or just miswired coverage**, in this order:
+   - **First, look for an existing check that's close but not covering this path/file type**, and widen or fix *that one* rather than bolting on a new, possibly-redundant workflow. `.github/workflows/*.yml` may already run the exact validation needed (a test suite via `unittest`/`pytest discover`, a schema linter, a build check) but simply not be path-triggered for what you just touched — this is a more common gap than "no CI exists at all" (`dvystrcil/skills#39`: `test_skill_schema.py` already linted every `claude/*/SKILL.md`, the workflow just never triggered on that path).
+   - **Only if nothing adjacent exists**, add a new one. For a kustomize-based deploy repo with no manifest validation at all, that's `.github/workflows/validate.yaml` using the shared `dvystrcil/kustomize-validate-action@v1` (the pattern on `mealie`/`reloader`/`home-assistant`/etc.).
+   - Either way, do it in the *same* PR — don't leave the gap for a follow-up. Test locally with `act` first; a self-hosted runner label (not `ubuntu-latest`) needs `-P <label>=ghcr.io/catthehacker/ubuntu:act-latest` or `act` just skips with "unsupported platform" instead of testing anything.
 7. **Never merge your own PR.** Await user review and approval.
 8. **Never `git push --force`** on any shared branch.
+9. **After a merge, verify what actually landed** — `gh pr view <n> --json files,commits` (or diff against `main`) — before treating the PR as fully done, especially if you pushed follow-up commits after the PR was first opened. A squash-merge clicked from a stale, already-open browser tab can silently pin to an old `headRefOid` and merge only the first commit, dropping everything pushed afterward even though it's still visible on the branch (home-assistant#4, 2026-07-23 — the "CI check never registered" mystery was actually this: the check was never in what merged).
 
 ## Why this is absolute here
 

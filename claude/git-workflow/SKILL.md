@@ -16,9 +16,10 @@ description: Strict GitOps workflow for every repo change — branch, rebase, te
    - How to test it
    - Dependencies/configuration notes
    - Known limitations or follow-up work
-6. **Wait for PR checks after creating any PR**: `gh pr checks <url> --watch --fail-fast`. A red check gets fixed on the same branch before you report done. "No checks reported" passes; red does not.
+6. **Wait for PR checks after creating any PR**: `gh pr checks <url> --watch --fail-fast`. A red check gets fixed on the same branch before you report done. "No checks reported" passes — **but for a kustomize-based deploy repo, check first whether that's because the repo genuinely has no CI wired up.** If it's missing `.github/workflows/validate.yaml` (kustomize build + kubeconform via the shared `dvystrcil/kustomize-validate-action@v1` — the pattern already on `mealie`/`reloader`/`home-assistant`/etc.), add it in the *same* PR rather than accepting silence as the final state. Test it locally with `act` first; since it targets a self-hosted runner label (not `ubuntu-latest`), `act` can't resolve the label and needs `-P <label>=ghcr.io/catthehacker/ubuntu:act-latest` to run it at all — a "Skipping unsupported platform" message means you forgot the `-P` mapping, not that the workflow is broken.
 7. **Never merge your own PR.** Await user review and approval.
 8. **Never `git push --force`** on any shared branch.
+9. **After a merge, verify what actually landed** — `gh pr view <n> --json files,commits` (or diff against `main`) — before treating the PR as fully done, especially if you pushed follow-up commits after the PR was first opened. A squash-merge clicked from a stale, already-open browser tab can silently pin to an old `headRefOid` and merge only the first commit, dropping everything pushed afterward even though it's still visible on the branch (home-assistant#4, 2026-07-23 — the "CI check never registered" mystery was actually this: the check was never in what merged).
 
 ## Why this is absolute here
 

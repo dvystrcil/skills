@@ -1,6 +1,6 @@
 ---
 name: pgo-safe-restart
-description: How to safely restart Patroni/PGO-managed Postgres pods without breaking leader election or the DCS watch. Covers single-instance restarts (validated) and multi-replica failover restarts (higher-stakes, procedure only). Load BEFORE restarting any pod backed by a PostgresCluster CR — including as a side effect of istio ambient enrollment, node draining, or config changes.
+description: How to safely restart Patroni/PGO-managed Postgres pods without breaking leader election or the DCS watch. Covers single-instance restarts and multi-replica failover restarts (both validated). Load BEFORE restarting any pod backed by a PostgresCluster CR — including as a side effect of istio ambient enrollment, node draining, or config changes.
 ---
 
 # PGO Safe Restart
@@ -61,11 +61,10 @@ single-instance. Re-check before acting — instance counts change.
    | grep <new-pod-name>` — expect `adding pod to the mesh` →
    `Applying iptables chains and rules` → `sending pod add to ztunnel`.
 
-## Multi-replica (HA) restart — procedure, not yet empirically validated here
+## Multi-replica (HA) restart (validated: `n8n-workflow`, 2026-07-23)
 
 Single-instance restarts don't exercise real failover — this is the part
-that actually matches what broke n8n, so treat the first live attempt as
-the validation, not an assumed-safe repeat of the single-instance case.
+that actually matches what broke n8n originally.
 
 1. Baseline: `patronictl list` — identify which member is `Leader` and
    which are `Replica`, and each replica's replay lag.
@@ -75,13 +74,31 @@ the validation, not an assumed-safe repeat of the single-instance case.
    catches up, or comes back in a bad state (not streaming), is a stop
    signal — do not proceed to the leader.
 3. **Restart the leader last.** This is the real failover: Patroni should
-   promote the already-fresh replica to `Leader`. Verify:
+   promote the already-fresh replica to `Leader`. On n8n-workflow this was
+   fast and clean — the promotion showed up in `patronictl list` within
+   one poll of deleting the leader pod. Verify:
    - The new leader shows `Leader | running` with low lag.
    - The old leader (now restarting) rejoins as a healthy `Replica`.
 4. If the cluster doesn't reach a clean `Leader | running` + healthy
    replica(s) state within a few minutes, or you see repeated failed
    promotion attempts, stop and consider the rollback below rather than
    retrying blindly.
+5. **Restart the application pod too, *after* the failover settles —
+   don't assume its in-process connection/scheduler state survived the
+   failover just because it never crashed.** On n8n-workflow, the app's
+   own health monitor correctly detected the disruption and logged
+   `Database connection recovered` — but one in-flight write landed in the
+   exact window where it still reconnected to the just-demoted node
+   (`cannot execute INSERT in a read-only transaction`), and n8n's internal
+   scheduler did not self-heal from that: zero new workflow executions for
+   several minutes afterward, with no further errors logged either (it
+   wasn't retrying, it was just quiet). Restarting the app pod immediately
+   fixed it — two scheduled workflows executed successfully within 90
+   seconds of the restart. Treat "the DB layer is healthy again" and "the
+   app's in-process state recovered" as two separate things to verify, not
+   one — especially for anything with an internal scheduler/cron/queue
+   component, which tend to fail differently (and more silently) than a
+   simple request-response connection pool.
 
 ### Rollback
 
@@ -128,6 +145,24 @@ the HA restart isn't converging.
   server` → `SSL established` with no subsequent `login failed`), not by
   waiting for app-side confirmation that may never come.
 
+- **For anything with an internal scheduler/cron/queue (n8n, and similar),
+  don't trust log silence as proof of recovery — query the actual
+  downstream evidence.** Logs alone said nothing was wrong on n8n-workflow
+  after the failover (no new errors), but nothing was actually running
+  either. What exposed it was querying the app's own execution record
+  table directly for anything newer than the failover:
+
+  ```bash
+  kubectl exec -n <ns> <pg-pod> -c database -- psql -U postgres -d <db> \
+    -c "SELECT id, status, \"startedAt\" FROM execution_entity \
+        WHERE \"startedAt\" > now() - interval '5 minutes' \
+        ORDER BY \"startedAt\" DESC;"
+  ```
+
+  Zero rows for longer than the app's normal schedule interval is the
+  actual signal to restart the app pod — not the presence or absence of
+  error lines.
+
 ## Verification checklist before calling it done
 
 - [ ] `patronictl list` — every member `running`, replicas (if any) at
@@ -137,12 +172,17 @@ the HA restart isn't converging.
 - [ ] pgbouncer's logs show a clean, recent, successful backend login
 - [ ] The actual application works end-to-end (hit its real UI/API — not
       just "pod is Ready")
+- [ ] For anything with an internal scheduler/cron/queue: query the app's
+      own data for fresh, successful activity since the failover — not
+      just an absence of errors in its logs
 
 ## Related
 
 - [[git-workflow]] — `kubectl delete pod` over `rollout restart` for
   ArgoCD-managed pods; general restart-and-verify discipline.
 - `n8n-workflow#97`/`#98` — the incident and its revert.
+- `n8n-workflow#99` — the redo, following this runbook; first validation
+  of the HA/failover section.
 - `homelab#481` — istio ambient mesh epic; this procedure is a hard
   dependency for enrolling any remaining PostgresCluster-backed namespace
-  (`n8n-workflow`, `harbor`, `infisical`).
+  (`harbor`, `infisical`).

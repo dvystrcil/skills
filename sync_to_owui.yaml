@@ -10,6 +10,10 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      # homelab#666: without this, a Failed Job never gets garbage-collected
+      # and Alertmanager's KubeJobFailed rule keeps re-firing on things
+      # already over.
+      ttlSecondsAfterFinished: 86400
       template:
         spec:
           restartPolicy: OnFailure

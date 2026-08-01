@@ -75,7 +75,12 @@ Non-zero exit on any failure with a one-line stderr message — failures are non
 ## Things that go wrong (and what to do)
 
 - **"could not find PGO primary pod"** — the cluster CR may not exist in that namespace, or its master pod is not `Running`. Run `kubectl -n <ns> get postgrescluster` to verify.
-- **"pg_dump failed inside pod"** — usually means the in-pod connection-as-postgres is rejected (rare; PGO clusters are well-behaved). Check `kubectl -n <ns> exec <primary-pod> -c database -- psql -U postgres -c '\\l'`.
+- **"pg_dump failed inside pod"** — the message now includes pg_dump's actual stderr (homelab#405 fixed silent `>/dev/null 2>&1` suppression that used to hide it). Usually means the in-pod connection-as-postgres is rejected (rare; PGO clusters are well-behaved) — check `kubectl -n <ns> exec <primary-pod> -c database -- psql -U postgres -c '\\l'`. But it can also mean pg_dump's backend connection got terminated mid-`COPY` on a specific table for reasons that have nothing to do with server health (homelab#405: reproduced on a 161MB, zero-restart n8n cluster — `pg_dump: detail: FATAL: terminating connection due to administrator command` on a 146MB table, root cause never fully explained). **If pg_dump keeps failing and the cluster is otherwise healthy, don't loop on it — fall back to a pgBackRest full backup instead**, which is server-side and doesn't route data through a client COPY:
+  ```bash
+  kubectl -n <ns> exec <primary-pod> -c database -- pgbackrest --stanza=db --type=full backup
+  kubectl -n <ns> exec <primary-pod> -c database -- pgbackrest info
+  ```
+  Confirm the new backup appears in `pgbackrest info`'s output before treating the upgrade as gated.
 - **"pg_restore -l returned 0 TOC entries — backup likely corrupt"** — never seen in practice, but if it happens, do not trust the dump. Investigate before continuing the upgrade.
 - **"could not prepare NFS dir" / scp failed** — ssh-key auth to `dan@192.168.86.176` is broken. Verify with `ssh -o BatchMode=yes dan@192.168.86.176 echo ok`.
 

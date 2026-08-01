@@ -28,7 +28,7 @@ jobs:
   validate-frontmatter:
     runs-on: skills-runner
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Validate every owui/*/SKILL.md
         run: |
@@ -81,7 +81,7 @@ jobs:
     # next to the code they validate.
     runs-on: skills-runner
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:

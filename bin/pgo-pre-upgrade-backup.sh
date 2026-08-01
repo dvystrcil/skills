@@ -201,10 +201,20 @@ fi
 DB_NAME=${DB_NAME:-$CLUSTER}
 
 # Run pg_dump inside the database container, write to /tmp inside pod.
+#
+# homelab#405: this used to be `>/dev/null 2>&1`, which swallowed
+# pg_dump's real error on failure -- the only signal was a generic
+# "pg_dump failed" with no indication of *why* (e.g. "terminating
+# connection due to administrator command" on a COPY, which pointed at
+# the actual root cause once visible). Capture stderr only (`2>&1
+# 1>/dev/null` -- order matters: it aliases fd2 to the command-
+# substitution capture, then discards fd1) and fold it into the error.
 POD_TMP="/tmp/pgdump-$$.pgdump"
-kubectl -n "$NS" exec "$PRIMARY" -c database -- \
-    pg_dump -U postgres -Fc -d "$DB_NAME" -f "$POD_TMP" >/dev/null 2>&1 || \
-    err "pg_dump failed inside pod $PRIMARY (db=$DB_NAME)"
+PG_DUMP_ERR=$(kubectl -n "$NS" exec "$PRIMARY" -c database -- \
+    pg_dump -U postgres -Fc -d "$DB_NAME" -f "$POD_TMP" 2>&1 1>/dev/null)
+PG_DUMP_RC=$?
+[ "$PG_DUMP_RC" -eq 0 ] || \
+    err "pg_dump failed inside pod $PRIMARY (db=$DB_NAME): ${PG_DUMP_ERR:-no output captured (rc=$PG_DUMP_RC)}"
 
 POD_SIZE=$(kubectl -n "$NS" exec "$PRIMARY" -c database -- \
     stat -c '%s' "$POD_TMP" 2>/dev/null) || err "could not stat dump file inside pod"

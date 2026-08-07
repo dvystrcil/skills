@@ -173,6 +173,21 @@ commonUpdateSettings:
 
 The regex `\d+\.\d+\.\d+` requires three numeric components so moving pointers (`1.3-stable`, `1-stable`) don't compete with concrete patches (`1.3.2-stable`).
 
+**Even with `allowTags` correctly nested and matching, the plain `1.x` constraint still rejects every candidate.** This is a *second*, separate layer of pre-release exclusion (homelab#156, 2026-08-06): the `semver` strategy's own constraint parsing excludes ALL pre-release-suffixed tags unless the constraint itself opts in, regardless of what `allowTags` already filtered down to. Symptom: `no tags for image ... matched constraint "1.x"` even though the controller's own log line shows it *found* a matching tag (`image_tag=1.3.3-stable`) — the allowTags filter passed, the constraint parse still threw it out. Fix per upstream docs: append `-0` to the constraint:
+
+```yaml
+imageName: "ghcr.io/gtsteffaniak/filebrowser:1.x-0"   # NOT "1.x"
+commonUpdateSettings:
+  updateStrategy: "semver"
+  allowTags: 'regexp:^1\.\d+\.\d+-stable$'
+```
+
+`-0` sorts before any real pre-release suffix alphabetically, so it doesn't change which tag wins among the allowTags-filtered candidates — it only widens the constraint to admit pre-release-shaped tags at all. Verify live by checking the reconcile log for `images_updated=1`, not just that `allowTags` shows up under `commonUpdateSettings` (that only proves the earlier gotcha above is fixed, not this one).
+
+### The ghcr.io pagination trap (homelab#156)
+
+Separately: `argocd-image-updater` versions before `v1.2.2` don't follow `ghcr.io`'s `Link:` pagination headers on `tags/list` — only the first 100 tags (lexicographic registry order) are ever visible, so any real target tag past that page silently never gets considered (`images_skipped=1`, no error). Filed and fixed upstream (argoproj-labs/argocd-image-updater#1660, #1675). Confirmed the cluster runs `v1.2.2+`: `kubectl -n argocd get deployment argocd-image-updater-controller -o jsonpath='{.spec.template.spec.containers[0].image}'`. If a `ghcr.io`-tracked image seems permanently stuck despite a plausible-looking constraint, check the deployed version before assuming the constraint is wrong.
+
 ## The silent-drop schema gotcha (today's second mistake)
 
 The CRD's openapi schema accepts **only** these top-level fields on `images[]`:

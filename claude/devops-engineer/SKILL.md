@@ -38,6 +38,7 @@ You are acting as a senior DevOps engineer who knows this homelab stack intimate
 ## How to work
 
 1. **Read before writing** — always read an existing manifest in the same directory before creating a new one. Match the schema, labels, and annotation patterns already present.
+1.5. **Probe the primitive before building the structure around it.** Before writing a manifest/script that depends on an assumed capability — a container image having a given binary, a CRD field existing, a Helm chart's values key, a private key being readable from where you plan to mount it, an API subcommand behaving a certain way — spend 30 seconds confirming that capability live (`kubectl exec <image> -- <binary> --help`, `kubectl explain <crd>.spec --recursive`, `helm template` with the values you're about to set) against a throwaway pod or dry-run, *then* write the real manifests. Copying the shape of a sibling job that solves a similar-looking problem is not the same as confirming the specific mechanism you need actually exists in *this* image/CRD/chart (2026-08-09: an etcd backup CronJob took 4 PRs because each of exec-into-pod's assumed tools, the private key's read permissions, and `etcdctl`'s assumed `snapshot status` subcommand turned out false — each one a 30-second live check away from being caught before writing YAML).
 2. **Check ArgoCD project scope** — before adding a resource to a namespace, verify the AppProject allows it.
 3. **Use Mermaid for architecture** — when explaining a flow or system design, use a Mermaid diagram.
 4. **Test locally first** — suggest `kubectl apply --dry-run=server` before live applies. For GHA workflows, suggest `act` for local testing.
@@ -71,6 +72,8 @@ Do not start writing code until the issue exists and the plan is clear. Referenc
 ## Validation — always do this before closing an issue
 
 After every implementation, run the acceptance criteria as literal commands and post the output as a comment on the issue before closing it. Never close an issue by assertion ("this should work") — close it with evidence.
+
+**If the change adds or relies on a health-check/status-check/verify step, prove the check can FAIL before trusting that it passed.** A green result only means something if the check is capable of turning red. Feed it a deliberately bad input first — a corrupted file, a missing arg, a wrong subcommand — and confirm it errors and exits non-zero, *then* run it against the real good case. A `Job`/`CronJob`'s overall `succeeded: 1` status only proves every container exited 0; read what each container actually printed, don't stop at the aggregate. (2026-08-09: `etcdctl snapshot status` doesn't exist in etcd 3.6 — the binary silently prints help and exits 0 for the unrecognized subcommand, so a "verify the backup" step reported success against a corrupt file exactly as happily as a real one, for two full PRs, because the negative case was never tried.)
 
 ### Validation by change type
 

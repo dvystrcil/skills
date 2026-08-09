@@ -146,7 +146,23 @@ git add LICENSE .github/CODEOWNERS && git commit -m "chore: add LICENSE + CODEOW
 
 # 4. Re-audit to confirm
 "$SKILLS_REPO/repo-protections/bin/audit.sh" dvystrcil/<repo>
+
+# 5. Bootstrap Infisical CI secrets, if this repo's workflows need them
+"$SKILLS_REPO/repo-protections/bin/bootstrap-infisical-ci.sh" dvystrcil/<repo>
 ```
+
+Step 5 (homelab#345) closes a recurring gap: `feedback_new_repo_infisical_secrets`
+was filed after a new repo's CI silently failed for 6 days because nobody
+set `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` at creation time — twice.
+The script detects whether the repo's workflows actually reference
+`Infisical/secrets-action` or `secrets.INFISICAL_CLIENT_ID` at all (a no-op,
+silent exit if not) and checks whether both secrets are already set
+(idempotent — safe to re-run). Every homelab repo's CI shares the same
+Infisical project/identity (`project-slug: homelab-bz-gt`, one set of
+credentials for the whole fleet — verified by grepping every workflow's
+`Infisical/secrets-action` step, not a new per-repo identity), so it just
+prompts once for those two values, opening the Infisical Identities page
+for you if you don't have them handy.
 
 ### Periodic drift audit
 
@@ -193,6 +209,6 @@ Skills live in [`dvystrcil/skills`](https://github.com/dvystrcil/skills):
 Locally:
 
 - `~/.claude/skills/repo-protections` → symlinked to `<skills-repo>/claude/repo-protections/` (`<skills-repo>` defaults to `~/Code/skills`; a portable install may clone it elsewhere)
-- The `bin/` scripts live at `<skills-repo>/repo-protections/bin/{audit,apply}.sh` — resolve `<skills-repo>` from the symlink (see "How to use"), never hardcode the path
+- The `bin/` scripts live at `<skills-repo>/repo-protections/bin/{audit,apply,bootstrap-infisical-ci}.sh` — resolve `<skills-repo>` from the symlink (see "How to use"), never hardcode the path
 
 Keep the two SKILL.md flavors in sync when the convention changes.

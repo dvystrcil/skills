@@ -97,3 +97,22 @@ jobs:
             exit 0
           fi
           python3 -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Discover + run tests/test_*.sh
+        # unittest discover above only picks up *.py -- bash-script tests
+        # (e.g. bootstrap-infisical-ci.sh's hermetic detection-logic test)
+        # need their own runner or they silently never execute in CI.
+        run: |
+          shopt -s nullglob
+          scripts=(tests/test_*.sh)
+          if [ ${#scripts[@]} -eq 0 ]; then
+            echo "no tests/test_*.sh files; nothing to run"
+            exit 0
+          fi
+          fail=0
+          for s in "${scripts[@]}"; do
+            echo "::group::$s"
+            bash "$s" || fail=1
+            echo "::endgroup::"
+          done
+          exit $fail

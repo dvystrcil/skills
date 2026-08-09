@@ -77,10 +77,22 @@ Canonical scripts live in `~/Code/skills/repo-protections/bin/`:
 
 # Apply canonical settings + branch protection:
 ~/Code/skills/repo-protections/bin/apply.sh dvystrcil/<repo>
+
+# Bootstrap Infisical CI secrets, if this repo's workflows need them:
+~/Code/skills/repo-protections/bin/bootstrap-infisical-ci.sh dvystrcil/<repo>
 ```
 
-The audit script flags drift without changing anything. The apply script is
-idempotent — safe to re-run.
+The audit script flags drift without changing anything. The apply and
+bootstrap-infisical-ci scripts are idempotent — safe to re-run.
+
+`bootstrap-infisical-ci.sh` (homelab#345) closes a recurring gap: a new
+repo's CI silently failed for days because nobody set
+`INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` at creation time. It
+detects whether the repo's own workflows reference Infisical at all
+(no-op if not), checks idempotently whether both secrets already exist,
+and only then prompts for the values — every homelab repo's CI shares
+the same Infisical project/identity, so it's the same two values every
+time, not a new per-repo identity to create.
 
 ## When to apply
 

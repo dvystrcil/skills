@@ -179,7 +179,18 @@ audit_one() {
       fi
     fi
   elif [ -z "$prot" ] || echo "$prot" | grep -q '"message"'; then
-    if [ "$vis" = "private" ]; then
+    # No classic protection — but a Ruleset is equally valid protection,
+    # and for any repo written to by automation it is the ONLY valid one,
+    # since only Rulesets can bypass a specific actor. Counting solely
+    # classic protection here reports correctly-protected repos as
+    # unprotected, which is how a real Ruleset gets "fixed" by stacking
+    # classic on top of it — see the apply.sh guard added alongside this.
+    local active_rulesets
+    active_rulesets=$(gh api "repos/$repo/rulesets" \
+      --jq '[.[] | select(.enforcement=="active") | .name] | join(", ")' 2>/dev/null || echo "")
+    if [ -n "$active_rulesets" ]; then
+      printf "  \033[32m✓\033[0m %-32s via Ruleset: %s\n" "branch protection" "$active_rulesets"
+    elif [ "$vis" = "private" ]; then
       printf "  \033[33m·\033[0m %-32s n/a (private repo, no Pro)\n" "branch protection"
     else
       check "branch protection" "absent" "present"

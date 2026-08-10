@@ -164,6 +164,29 @@ if [ "$is_cd_repo" = "1" ]; then
   echo "Done. Run audit.sh $REPO to confirm."
   exit 0
 fi
+# A repo may already be protected by a Ruleset even though it isn't a CD
+# repo by the image-updater/ heuristic — anything written to by automation
+# (an hourly canary, a backup agent, a post-merge codegen job) is set up
+# that way, because only Rulesets can bypass a specific actor. Layering
+# classic Branch Protection on top does NOT add safety: the two enforce in
+# parallel, classic has no bypass list, and the bypassed actor starts
+# failing with GH006.
+#
+# Burned 2026-08-10: a fleet-wide apply run put classic protection on
+# dvystrcil/homelab-heartbeat (Ruleset bypassing the n8n App), skills
+# (Ruleset bypassing the Actions App that regenerates a ConfigMap) and
+# neptune-4pro-klipper-backup (printer pushing config backups). The
+# heartbeat canary stopped at the next hourly tick.
+existing_ruleset=$(gh api "repos/$REPO/rulesets" \
+  --jq '[.[] | select(.enforcement=="active") | .name] | join(", ")' 2>/dev/null || echo "")
+if [ -n "$existing_ruleset" ]; then
+  echo "    SKIPPED classic protection — already protected by Ruleset(s): $existing_ruleset"
+  echo "    (classic would enforce in parallel with no bypass list and break any bypassed actor)"
+  echo
+  echo "Done. Run audit.sh $REPO to confirm."
+  exit 0
+fi
+
 protection_payload=$(cat <<'JSON'
 {
   "required_status_checks": null,

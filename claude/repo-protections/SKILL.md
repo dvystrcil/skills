@@ -21,9 +21,28 @@ should be closed within the same session it's noticed.
 - Template lives at `<skills-repo>/repo-protections/templates/LICENSE` (resolve `<skills-repo>` via the symlink — see "How to use" below; don't hardcode `~/Code/skills`)
 - In the README, link the word "MIT" to `LICENSE` — bare text won't render as a link
 
-**Forks are exempt from the license + default-branch rules.** A fork keeps
-its upstream license and branch convention. Apply the rest (merge mode,
-branch protection, CODEOWNERS) as normal.
+**Forks of a third-party upstream are exempt from the license,
+default-branch, AND CODEOWNERS rules.** Such a fork keeps its upstream
+license and branch convention, and does not get a `CODEOWNERS` file:
+that is our review governance written into someone else's tree, and a
+file upstream doesn't have is friction on every merge from upstream —
+exactly the repos where you're carrying a feature branch toward a PR.
+Apply the rest (merge mode, branch protection) as normal: those govern
+review *in our fork* and are ours to set. With no `CODEOWNERS` present,
+branch protection's `require_code_owner_reviews` is simply vacuous — no
+file owns any path — so the 1-approval rule still holds and nothing
+breaks.
+
+"Third-party" means the parent's owner is not us. A fork of one of our
+own repos is not exempt.
+
+Established 2026-08-10, after a fleet audit added CODEOWNERS PRs to
+`fluidd` (fork of `fluidd-core`), `FreeCAD` (`FreeCAD/FreeCAD`),
+`TinySearch` (`TinySuiteHQ`) and `open-terminal-app-fork`
+(`open-webui`); the operator rejected them on exactly this reasoning —
+"it's forked from a vendor, I should not impress my codeowners on it".
+The previous wording explicitly told you to apply CODEOWNERS to forks
+"as normal", which is what produced those PRs.
 
 ### Dual licensing for repos with substantial prose
 

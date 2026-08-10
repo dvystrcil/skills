@@ -52,6 +52,17 @@ audit_one() {
   fork=$(echo "$meta" | jq -r '.fork')
   parent=$(echo "$meta" | jq -r '.parent.full_name // ""')
 
+  # A fork of SOMEONE ELSE'S repo is exempt from license, default-branch
+  # and CODEOWNERS; a fork of one of our own repos is not. Compare the
+  # parent's owner against this repo's owner rather than hardcoding a
+  # username, so the script stays portable.
+  local parent_owner our_owner third_party_fork=0
+  parent_owner=$(echo "$meta" | jq -r '.parent.owner.login // ""')
+  our_owner="${repo%%/*}"
+  if [ "$fork" = "true" ] && [ -n "$parent_owner" ] && [ "$parent_owner" != "$our_owner" ]; then
+    third_party_fork=1
+  fi
+
   check "visibility (informational)" "$vis"     "$vis"
 
   if [ "$fork" = "true" ]; then
@@ -94,7 +105,18 @@ audit_one() {
 
   # Required files. CD repos still need CODEOWNERS — the Ruleset's
   # require_code_owner_review rule depends on it.
-  for path in README.md .github/CODEOWNERS; do
+  #
+  # Third-party forks are the exception: we don't write our review
+  # governance into a vendor's tree, and a file upstream doesn't have is
+  # friction on every merge from upstream. Without CODEOWNERS the
+  # require_code_owner_reviews rule is vacuous (no path has an owner), so
+  # the 1-approval requirement still holds.
+  local required_files="README.md .github/CODEOWNERS"
+  if [ "$third_party_fork" = "1" ]; then
+    required_files="README.md"
+    printf "  \033[33m·\033[0m %-32s exempt (third-party fork)\n" "file: .github/CODEOWNERS"
+  fi
+  for path in $required_files; do
     if gh api "repos/$repo/contents/$path" >/dev/null 2>&1; then
       check "file: $path"            "present"  "present"
     else

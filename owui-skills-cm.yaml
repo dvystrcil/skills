@@ -1141,7 +1141,7 @@ data:
   visualize.md: |
     ---
     name: "Visualize"
-    description: "Render rich interactive visuals — SVG diagrams, HTML widgets, Chart.js charts, interactive explainers — directly inline in chat using the render_visualization tool. Use whenever the user asks to visualize, diagram, chart, draw, map out, or illustrate something, or when a topic has spatial, sequential, or systemic relationships a diagram would clarify better than prose. Also use proactively for data comparisons, metrics, architecture, processes, or mechanisms that benefit from a visual."
+    description: "Render rich interactive visuals — SVG diagrams, HTML widgets, Chart.js charts, interactive explainers — directly inline in chat using the visualize tool. Use whenever the user asks to visualize, diagram, chart, draw, map out, or illustrate something, or when a topic has spatial, sequential, or systemic relationships a diagram would clarify better than prose. Also use proactively for data comparisons, metrics, architecture, processes, or mechanisms that benefit from a visual."
     tags: ["visualization", "rendering", "diagrams", "charts"]
     scope: "complex"
     ---
@@ -1149,13 +1149,13 @@ data:
     
     # Inline Visualizer
     
-    Render rich interactive visuals directly inline in chat using `render_visualization`. Supports **live streaming** — the iframe fills in token-by-token as you generate the HTML/SVG.
+    Render rich interactive visuals directly inline in chat using `visualize`. Supports **live streaming** — the iframe fills in token-by-token as you generate the HTML/SVG.
     
     ## How to use
     
     You call the tool with **only a title**, and then emit the HTML/SVG content wrapped in the **plain-text delimiters** `@@@VIZ-START` and `@@@VIZ-END`. The wrapper tails your stream and paints the iframe live.
     
-    1. Call `render_visualization(title="…")`
+    1. Call `visualize(title="…")`
     2. In your text response, write explanatory prose
     3. Open with `@@@VIZ-START` on its own line
     4. Emit the HTML/SVG **content fragment only** — **NEVER** wrap in `<!DOCTYPE>`, `<html>`, `<head>`, or `<body>` tags (the iframe already has these; duplicating them corrupts the DOM)

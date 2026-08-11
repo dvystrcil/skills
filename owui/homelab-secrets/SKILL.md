@@ -73,7 +73,7 @@ n8n-workflow, redis, open-terminal, open-webui, tailscale, stable-diffution-webu
 
 ## Known gotchas
 
-- `additionalAnnotations` on managed Secrets isn't supported by the controller (homelab#6).
+- Labels/annotations on the managed Secret ARE supported via `managedSecretReference.template.metadata` (operator v0.10.33, verified 2026-08-11). The old `additionalAnnotations` field never worked (homelab#6); that gotcha is obsolete. `template.metadata` replaces copied metadata rather than merging, so set everything there.
 - If you add a key to the template but forget to add it to Infisical, the InfisicalSecret stays Failed and the pod crashloops on `secret "X" not found`. Add to Infisical FIRST.
 - Image-pull secrets work too — set the Secret `type: kubernetes.io/dockerconfigjson` on the managed Secret; see `open-terminal/base/harbor-pull-infisical-secret.yaml`.
 

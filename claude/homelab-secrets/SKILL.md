@@ -124,7 +124,19 @@ Use any of these as a template; all 12 follow the same shape:
 
 ## Known gotchas
 
-- **homelab#6** — `additionalAnnotations` field on managed Secrets isn't supported by the controller. Set annotations on the InfisicalSecret CR; they don't propagate to the managed Secret.
+- **Labels/annotations on the managed Secret ARE supported** — via `spec.managedSecretReference.template.metadata`, verified against operator `v0.10.33` on 2026-08-11. The old `additionalAnnotations` field never worked (homelab#6), and that gotcha is now obsolete — don't hand-patch secrets or add post-sync hooks to work around it:
+
+  ```yaml
+    managedSecretReference:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: argocd
+          annotations:
+            reloader.stakater.com/auto: "true"
+  ```
+
+  Note the CRD description: *"When specified, these values are used instead of copying metadata from the InfisicalSecret CR"* — so `template.metadata` **replaces** the copied metadata rather than merging with it. Set everything you need in one place.
 - **homelab#7** — apps not yet on the pattern. Open follow-ups; if you're working on one of them, add the InfisicalSecret as part of the same change.
 - **Missing keys cause CrashLoopBackOff** — if you add a key to the InfisicalSecret template but forget to add it to Infisical, the controller refuses to create the managed Secret; the pod crashloops on `secret "X" not found`. Always add to Infisical first.
 - **Image-pull secrets are also InfisicalSecret** — see `open-terminal/base/harbor-pull-infisical-secret.yaml` for the `kubernetes.io/dockerconfigjson` shape; the managed Secret type field needs to be set explicitly.
@@ -140,5 +152,5 @@ Use any of these as a template; all 12 follow the same shape:
 
 - Memory rule: `feedback_secret_manifest_in_repo_is_not_hardening.md`
 - Issue: `dvystrcil/homelab#7` (migration tracker)
-- Issue: `dvystrcil/homelab#6` (additionalAnnotations gotcha)
+- Issue: `dvystrcil/homelab#6` (historical — the `additionalAnnotations` gotcha, obsoleted by `template.metadata` in operator v0.10.33)
 - Trigger event: `dvystrcil/libreoffice#1` (anti-pattern) → `#2` (correct pattern)

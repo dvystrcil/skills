@@ -22,7 +22,7 @@ metadata:
   name: <app>-infisical-secret
   namespace: <app-namespace>
 spec:
-  hostAPI: https://infisical.sirddail.net/api
+  hostAPI: http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080/api
   resyncInterval: 60
   authentication:
     universalAuth:

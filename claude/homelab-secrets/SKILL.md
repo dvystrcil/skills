@@ -20,7 +20,7 @@ metadata:
   name: <app>-infisical-secret
   namespace: <app-namespace>
 spec:
-  hostAPI: https://infisical.sirddail.net/api
+  hostAPI: http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080/api
   resyncInterval: 60                              # rotations propagate in ~60s
   authentication:
     universalAuth:
@@ -62,7 +62,7 @@ The Deployment then references the managed Secret normally:
 
 | Field | Value | Why |
 |---|---|---|
-| `hostAPI` | `https://infisical.sirddail.net/api` | Cluster-hosted Infisical instance |
+| `hostAPI` | `http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080/api` | In-cluster ClusterIP, so secret sync doesn't depend on external DNS + the Gateway. `infisical.sirddail.net` is the same self-hosted instance via the external round trip — UI only, never `hostAPI` (homelab#522). `http://` is not cleartext: both namespaces are ambient-enrolled, so ztunnel wraps it in mTLS |
 | `projectSlug` | `homelab-bz-gt` | Single project for all homelab apps |
 | `envSlug` | `prod` | We don't run a dev/staging tier in the homelab |
 | `credentialsRef` | `infisical-machine-identity` / `infisical-operator` | Shared machine identity; deployed by the Infisical operator chart |

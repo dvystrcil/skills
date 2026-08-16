@@ -88,7 +88,18 @@ jobs:
           python-version: '3.x'
 
       - name: Install PyYAML
-        run: pip install --quiet pyyaml
+        # Retried: one Fastly edge node in PyPI's rotation serves 502s to
+        # this cluster at ~15% (homelab#1029). pip's own retries reuse the
+        # connection and land back on the same node; a fresh process
+        # re-resolves, so three attempts take ~15% to ~0.3%.
+        run: |
+          for attempt in 1 2 3; do
+            pip install --quiet pyyaml && exit 0
+            echo "::warning::pip install failed (attempt ${attempt}/3) — retrying"
+            sleep $((attempt * 10))
+          done
+          echo "::error::pip install failed three times"
+          exit 1
 
       - name: Discover + run tests/test_*.py
         run: |

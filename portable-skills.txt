@@ -28,5 +28,6 @@ repo-protections
 scheduler
 secrets-hygiene
 tdd
+tdd-artifacts
 test-architect
 three-anchor-truthiness

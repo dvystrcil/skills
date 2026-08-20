@@ -83,11 +83,34 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # actions/setup-python upgrades pip on EVERY run, which reaches
+      # files.pythonhosted.org and inherits the flaky edge node from
+      # homelab#1029. The retry below cannot help: the 502 happens inside the
+      # action, before that step ever runs — observed on dvystrcil/skills#64,
+      # 2026-08-19, "too many 502 error responses" while Upgrading pip.
+      #
+      # The mitigation was attached to the layer we control rather than the
+      # layer that fails. So skip the action entirely when the self-hosted
+      # runner image already provides what the tests need, and keep it as a
+      # fallback for runners that do not.
+      - name: Does this runner already have python3 + PyYAML?
+        id: probe
+        run: |
+          if python3 -c "import yaml" 2>/dev/null; then
+            echo "need-setup=false" >> "$GITHUB_OUTPUT"
+            echo "runner provides $(python3 -V 2>&1) with PyYAML — skipping setup-python"
+          else
+            echo "need-setup=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::runner lacks python3+PyYAML; falling back to actions/setup-python"
+          fi
+
       - uses: actions/setup-python@v7
+        if: steps.probe.outputs.need-setup == 'true'
         with:
           python-version: '3.x'
 
       - name: Install PyYAML
+        if: steps.probe.outputs.need-setup == 'true'
         # Retried: one Fastly edge node in PyPI's rotation serves 502s to
         # this cluster at ~15% (homelab#1029). pip's own retries reuse the
         # connection and land back on the same node; a fresh process

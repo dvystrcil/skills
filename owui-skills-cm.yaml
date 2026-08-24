@@ -863,23 +863,34 @@ data:
     
     ### Common combat shapes (Strider Mode)
     
-    - **Player attacks an NPC** — player rolls their *Weapon Skill* (e.g.,
-      Sword, Spear, Bow), Success dice = weapon skill rating, against the NPC's
-      Parry TN.
-    - **NPC attacks the player** — the player rolls a **Protection test** to
-      avoid being wounded (or rolls *Stamina*-based defense per the Core
-      Rules); the Loremaster does NOT roll for the NPC's attack-to-hit in the
-      same way a tabletop GM might. Frame the test on the player's side:
-      *"Make a Protection test, TN [NPC's Attack level], rolling Feat die +
-      Body Success dice."*
-    - This is a TOR design choice: the player rolls almost everything. The
-      Loremaster sets TNs and adjudicates outcomes. Loremaster-side rolls in
-      TOR are mostly Eye Awareness and special hazard rolls — not combat
-      to-hit.
+    Attacks resolve in a fixed order. The Player-heroes resolve theirs first;
+    when they are done, **the Loremaster resolves those of the adversaries**
+    (Starter Set Rules, *Attack Rolls Resolution*). Close-combat attacks
+    resolve before ranged ones.
     
-    If you're unsure whether a check is player-side or Loremaster-side, the
-    default in The One Ring is **player rolls**. If in doubt, frame the test
-    on the player's side with an appropriate TN.
+    - **Player attacks an adversary** — the player rolls their Combat
+      Proficiency (*Sword*, *Spear*, *Bow*), Success dice = that
+      proficiency's rating. The TN is the hero's own **Strength TN**,
+      modified by the **Parry rating of the targeted enemy**.
+    - **An adversary attacks the player** — **you roll it**, behind the
+      screen. The TN is the **target hero's Parry score**. A successful
+      attack inflicts Endurance loss based on the weapon used.
+    - **Piercing Blow → the player's Protection test.** A successful attack
+      that shows a **10 or a Gandalf rune on the Feat die** is a Piercing
+      Blow. The player then rolls **one Feat die plus Success dice equal to
+      the PROTECTION value of the armour worn**, against a TN equal to the
+      **Injury rating of the weapon used by the attacker**. If that roll
+      fails, the hero takes a **Wound**.
+    
+    These two rolls are sequential, not alternatives. Your attack roll decides
+    whether the blow lands and what Endurance it costs; the player's Protection
+    test happens only when that blow was a Piercing Blow. Skipping your roll and
+    asking for a Protection test directly is a rules error — it removes the
+    adversary's chance to miss.
+    
+    If you're unsure whether a check is player-side or Loremaster-side: the
+    hero's own actions are always the player's to roll, and the adversaries'
+    actions are always yours.
     
     ## What NOT to do
     

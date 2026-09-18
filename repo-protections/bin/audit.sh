@@ -185,9 +185,27 @@ audit_one() {
     # classic protection here reports correctly-protected repos as
     # unprotected, which is how a real Ruleset gets "fixed" by stacking
     # classic on top of it — see the apply.sh guard added alongside this.
-    local active_rulesets
-    active_rulesets=$(gh api "repos/$repo/rulesets" \
-      --jq '[.[] | select(.enforcement=="active") | .name] | join(", ")' 2>/dev/null || echo "")
+    # Read the STATUS, not the body. `gh api` prints an error payload to
+    # stdout and exits non-zero, and `--jq` then fails and passes the raw JSON
+    # through -- so on a 403 this variable held
+    #   {"message":"Upgrade to GitHub Pro ...","status":"403"}
+    # which is non-empty, so the branch below reported
+    #   ✓ branch protection  via Ruleset: {"message":"Upgrade to GitHub Pro...
+    # Every private repo in the fleet read as PROTECTED while GitHub was
+    # saying the feature is unavailable on this plan. A protection audit that
+    # fails OPEN is worse than no audit: it answers the one question it exists
+    # to answer, wrongly, and confidently.
+    #
+    # `|| echo ""` did not save it, because gh had already written the body.
+    # The guard has to be an explicit success check plus a type check -- a
+    # successful response is a JSON ARRAY; an error is an object.
+    local active_rulesets rulesets_json
+    active_rulesets=""
+    if rulesets_json=$(gh api "repos/$repo/rulesets" 2>/dev/null) \
+       && echo "$rulesets_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+      active_rulesets=$(echo "$rulesets_json" \
+        | jq -r '[.[] | select(.enforcement=="active") | .name] | join(", ")')
+    fi
     if [ -n "$active_rulesets" ]; then
       printf "  \033[32m✓\033[0m %-32s via Ruleset: %s\n" "branch protection" "$active_rulesets"
     elif [ "$vis" = "private" ]; then

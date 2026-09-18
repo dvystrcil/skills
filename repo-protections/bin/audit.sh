@@ -63,9 +63,31 @@ audit_one() {
     third_party_fork=1
   fi
 
+  # A MACHINE-MANAGED repo cannot be made to comply by opening a PR, because
+  # its contents are written by something that is not a person. Adding LICENSE,
+  # README.md or .github/CODEOWNERS through GitHub is undone the next time the
+  # machine pushes; the file has to be placed on the machine itself, in the
+  # directory the tool backs up.
+  #
+  # Marked by the `machine-managed` TOPIC rather than a file in the repo, for
+  # the obvious reason: a marker file would be overwritten by the very process
+  # it describes. Topics are repo metadata and survive any push.
+  #
+  # The live case is a Klipper printer config backup: every commit reads
+  # "New Backup on boot - ...", and the only human-authored thing about it is
+  # the decision to have it. Flagging it forever produces a permanent failure
+  # nobody can act on, and a check that can only fail is a check nobody reads.
+  local machine_managed=0
+  if echo "$meta" | jq -e '.topics // [] | index("machine-managed")' >/dev/null 2>&1; then
+    machine_managed=1
+  fi
+
   check "visibility (informational)" "$vis"     "$vis"
 
-  if [ "$fork" = "true" ]; then
+  if [ "$machine_managed" = "1" ]; then
+    printf "  \033[33m·\033[0m %-32s contents written by a machine — license/README/CODEOWNERS\n" "machine-managed"
+    printf "  %-34s must be placed on the device, not via PR\n" ""
+  elif [ "$fork" = "true" ]; then
     printf "  \033[33m·\033[0m %-32s fork of %s — license/default-branch tracked upstream\n" "fork status" "$parent"
   else
     check "default branch"           "$def"     "main"
@@ -97,7 +119,9 @@ audit_one() {
   check "has_issues"                 "$issues"  "true"
 
   # LICENSE: detect via license API (handles LICENSE / LICENSE.md / LICENSE.txt).
-  if gh api "repos/$repo/license" >/dev/null 2>&1; then
+  if [ "$machine_managed" = "1" ]; then
+    printf "  \033[33m·\033[0m %-32s exempt (machine-managed)\n" "license file"
+  elif gh api "repos/$repo/license" >/dev/null 2>&1; then
     check "license file"             "present"  "present"
   else
     check "license file"             "missing"  "present"
@@ -112,7 +136,11 @@ audit_one() {
   # require_code_owner_reviews rule is vacuous (no path has an owner), so
   # the 1-approval requirement still holds.
   local required_files="README.md .github/CODEOWNERS"
-  if [ "$third_party_fork" = "1" ]; then
+  if [ "$machine_managed" = "1" ]; then
+    required_files=""
+    printf "  \033[33m·\033[0m %-32s exempt (machine-managed)\n" "file: README.md"
+    printf "  \033[33m·\033[0m %-32s exempt (machine-managed)\n" "file: .github/CODEOWNERS"
+  elif [ "$third_party_fork" = "1" ]; then
     required_files="README.md"
     printf "  \033[33m·\033[0m %-32s exempt (third-party fork)\n" "file: .github/CODEOWNERS"
   fi

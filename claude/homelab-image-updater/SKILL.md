@@ -30,7 +30,6 @@ kind: ImageUpdater
 metadata:
   name: <app>-iu
 spec:
-  namespace: argocd
   applicationRefs:
     - namePattern: "<argo-app-name>"      # MUST match a live Argo Application
       images:
@@ -56,7 +55,6 @@ kind: ImageUpdater
 metadata:
   name: <app>-iu
 spec:
-  namespace: argocd
   applicationRefs:
     - namePattern: "<argo-app-name>"
       images:
@@ -75,6 +73,8 @@ spec:
 ```
 
 ## What does NOT exist
+
+**`spec.namespace` is not a field.** The installed CRD's `spec` has only `applicationRefs`, `commonUpdateSettings` and `writeBackConfig`. Every `*-image-updater` Argo app syncs with `ServerSideApply=true`, which rejects the whole patch: `.spec.namespace: field not declared in schema`. Worse, it only fails on the *first edit*, because an unchanged manifest never gets re-applied, so a CR can carry it for months and then block an upgrade (homepage#33 → #34, homelab#1421). The CR lands in `argocd` via `metadata`/the Argo app destination, not via `spec`.
 
 **`manifestTargets.kubernetes` is not a thing.** There's no writer that takes raw `spec.template.spec.containers[0].image` YAML dot-paths into a `deployment.yaml`. Today's filebrowser-iu first draft tried this and the controller silently no-op'd. The CRD validates strict at `manifestTargets` — only `helm` is allowed.
 

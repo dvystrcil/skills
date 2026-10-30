@@ -47,7 +47,7 @@ spec:
 
 For apps with a Helm chart + values.yaml. Image-updater rewrites two keys in the values file. **`manifestTargets.helm` IS required** (it tells the writer which keys hold the image name and tag).
 
-Reference: [`dvystrcil/infisical/image-updater/`](https://github.com/dvystrcil/infisical/tree/main/image-updater) (most IU CRs live in each app repo's `image-updater/` dir, not in argocd-image-updater). Cluster examples: `infisical-iu`, `immich-iu`.
+Reference: [`dvystrcil/infisical/image-updater/`](https://github.com/dvystrcil/infisical/tree/main/image-updater) (most IU CRs live in each app repo's `image-updater/` dir, not in argocd-image-updater). Cluster example: `infisical-iu`.
 
 **Before choosing helm, confirm the app actually renders that values file** (`kubectl -n argocd get application <app> -o jsonpath='{.spec.sources}'` → a Helm source with `valueFiles: [$values/values.yaml]`). `cloudflared-iu` kept the helm writer after the cloudflare repo went kustomize: it committed to a `base/values.yaml` that no kustomization listed, its status reported `1 images updated` for months, and the deployed tag only moved via Renovate (cloudflare#27, argocd-image-updater#28, 2026-10-30).
 
@@ -224,7 +224,7 @@ Today's first-pass filebrowser fix had `updateStrategy` and `allowTags` at the t
 |---|---|---|
 | `kustomization:/overlays` | Kustomize repos | Most apps |
 | `kustomization:/<path>` | Kustomize repo with non-standard overlay path | (none in cluster currently) |
-| `helmvalues:./values.yaml` | Helm chart with values at repo root | `infisical-iu`, `immich-iu` |
+| `helmvalues:./values.yaml` | Helm chart with values at repo root | `infisical-iu` |
 | `helmvalues:/<path>` | Helm with non-root values | (none in cluster currently) |
 
 ## Private registries (Harbor)

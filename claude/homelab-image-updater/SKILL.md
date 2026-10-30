@@ -47,7 +47,9 @@ spec:
 
 For apps with a Helm chart + values.yaml. Image-updater rewrites two keys in the values file. **`manifestTargets.helm` IS required** (it tells the writer which keys hold the image name and tag).
 
-Reference: [`cloudflared/cloudflared-image-updater.yaml`](https://github.com/dvystrcil/argocd-image-updater/blob/main/cloudflared/cloudflared-image-updater.yaml). Cluster example: `cloudflared-iu`.
+Reference: [`dvystrcil/infisical/image-updater/`](https://github.com/dvystrcil/infisical/tree/main/image-updater) (most IU CRs live in each app repo's `image-updater/` dir, not in argocd-image-updater). Cluster example: `infisical-iu`.
+
+**Before choosing helm, confirm the app actually renders that values file** (`kubectl -n argocd get application <app> -o jsonpath='{.spec.sources}'` → a Helm source with `valueFiles: [$values/values.yaml]`). `cloudflared-iu` kept the helm writer after the cloudflare repo went kustomize: it committed to a `base/values.yaml` that no kustomization listed, its status reported `1 images updated` for months, and the deployed tag only moved via Renovate (cloudflare#27, argocd-image-updater#28, 2026-10-30).
 
 ```yaml
 apiVersion: argocd-image-updater.argoproj.io/v1alpha1
@@ -96,7 +98,7 @@ For **vendor images** there is no convention to assume — match the actual tag 
 | Vendor | Their image tags | IU CR shape |
 |---|---|---|
 | infisical/infisical | `v0.160.7` (v prefix) | regex `^v0\.160\.\d+$` |
-| cloudflare/cloudflared | `2026.5.0` (calver, no v) | constraint `:2026.x` |
+| cloudflare/cloudflared | `2026.10.7` (calver, no v) + `2002-872b241` build tags + `-arm64` | no tag + `allowTags: 'regexp:^\d{4}\.\d+\.\d+$'` (a `:2026.x` constraint dies on Jan 1) |
 | ghcr.io/mealie-recipes/mealie | `v3.19.0` (v prefix) | regex `^v3\.[0-9]+\.[0-9]+$` |
 | ghcr.io/some-other | depends | check Docker Hub / ghcr first |
 
@@ -128,7 +130,7 @@ The tag suffix on `imageName` is the **semver constraint range**. Examples:
 | `:1.x` | 1.0.0, 1.3.2, 1.10.0, 1.4.0-beta — anything in 1.x major | You want to track a major |
 | `:v1.x` | v1.0.0, v1.3.2-beta — anything with `v` prefix in 1.x | Upstream uses `v` prefix (homepage, trilium) |
 | `:0.x` | All of 0.x | Track a 0.x line |
-| `:2026.x` | 2026.5.1, 2026.12.0 | Calver (cloudflared) |
+| `:2026.x` | 2026.5.1, 2026.12.0 | Calver — but stops matching at year rollover; prefer an allowTags regex |
 | No tag | Any tag matching the strategy | `imageName: harbor.sirddail.net/ai/ollama` (no tag, needs allowTags to constrain) |
 
 ### `commonUpdateSettings.allowTags: 'regexp:...'`
@@ -222,7 +224,7 @@ Today's first-pass filebrowser fix had `updateStrategy` and `allowTags` at the t
 |---|---|---|
 | `kustomization:/overlays` | Kustomize repos | Most apps |
 | `kustomization:/<path>` | Kustomize repo with non-standard overlay path | (none in cluster currently) |
-| `helmvalues:./values.yaml` | Helm chart with values at repo root | `cloudflared-iu`, `coder-iu` |
+| `helmvalues:./values.yaml` | Helm chart with values at repo root | `infisical-iu` |
 | `helmvalues:/<path>` | Helm with non-root values | (none in cluster currently) |
 
 ## Private registries (Harbor)
@@ -245,7 +247,8 @@ Use these as templates by similarity:
 | Pattern | Reference CRD | When to copy |
 |---|---|---|
 | Plain kustomize, semver constraint, GHCR/Docker Hub public | `trilium-iu` | Most public OSS images |
-| Plain helm, dot-paths into values.yaml | `cloudflared-iu` | Apps deployed via Helm chart |
+| Plain helm, dot-paths into values.yaml | `infisical-iu` | Apps deployed via Helm chart |
+| Kustomize + calver regex (no year pin) | `cloudflared-iu` | Calver vendor images that also publish build/arch tags |
 | Channel filter via regex (only stable tags) | `filebrowser-iu` | Image publishes multiple channels under same major (stable/beta/slim) |
 | Harbor private + custom build regex | `ollama-iu` | Internally-built Harbor images with specific tag patterns |
 | Harbor private + plain semver | `open-terminal-iu` | Internally-built Harbor images with standard semver tags |

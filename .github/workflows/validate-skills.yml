@@ -20,6 +20,9 @@ on:
     paths:
       - "owui/**/SKILL.md"
       - "claude/**/SKILL.md"
+      # Scripts shipped inside a skill are exercised by tests/test_*.py; a PR
+      # touching only the script must still run them.
+      - "claude/**/bin/**"
       - "tests/**"
       - ".github/workflows/validate-skills.yml"
   workflow_dispatch: {}

@@ -24,6 +24,7 @@ doc-master
 find-skills
 first-ask
 frontend-design
+memory-maintenance
 repo-protections
 scheduler
 secrets-hygiene

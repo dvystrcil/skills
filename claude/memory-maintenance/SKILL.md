@@ -82,6 +82,7 @@ Config is per machine, in `~/.config/claude-memory/backup.env`, never in a repo:
 BACKUP_ENABLED=0                       # default: local history only
 RESTIC_REPOSITORY=sftp:host-alias:/path/repo
 RESTIC_PASSWORD_FILE=$HOME/.config/restic/claude-memory.pass   # mode 600; escrow it off this machine
+PATH=/home/linuxbrew/.linuxbrew/bin:$PATH   # systemd user units do not see brew; the job names a missing restic/gitleaks
 ```
 
 For an SFTP target, give the backup key a root-owned home and `.ssh`, with

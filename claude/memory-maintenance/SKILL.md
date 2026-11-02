@@ -61,6 +61,34 @@ headroom is a runway, not a fix.
 
 Never let a tool rewrite the whole index from an LLM's judgment without step 4.
 
+## History + backup (hourly)
+
+`bin/memory-backup.sh` (systemd units in `systemd/`):
+
+1. **Local-only git** in each memory dir: commits any change. A memory dir
+   with a git **remote is refused**; no remote means one writer, nothing
+   to diverge from, nothing pushed in clear.
+2. Runs the index gate (reported, never blocks the backup).
+3. Runs `gitleaks` over the dir if installed.
+4. If `BACKUP_ENABLED=1`: restic snapshot (`.git` included) + retention
+   48h/30d/26w/24m, then writes `~/.local/state/claude-memory/last-backup`.
+
+`bin/memory-session-check.sh` is a report-only SessionStart line: index
+headroom (WARN < 3,000 chars, FAIL if truncated) and snapshot age (WARN > 24h).
+
+Config is per machine, in `~/.config/claude-memory/backup.env`, never in a repo:
+
+```bash
+BACKUP_ENABLED=0                       # default: local history only
+RESTIC_REPOSITORY=sftp:host-alias:/path/repo
+RESTIC_PASSWORD_FILE=$HOME/.config/restic/claude-memory.pass   # mode 600; escrow it off this machine
+```
+
+For an SFTP target, give the backup key a root-owned home and `.ssh`, with
+the repo in a user-owned subdir, and pin the key with
+`restrict,command="/usr/lib/openssh/sftp-server"`. A user-owned
+`authorized_keys` lets the key holder strip the pin.
+
 ## Memory is per machine
 
 This skill is shared across machines; **memory content is not**. Work-session

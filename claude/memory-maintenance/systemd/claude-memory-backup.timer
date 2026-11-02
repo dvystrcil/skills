@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly Claude Code memory backup (homelab#1800)
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

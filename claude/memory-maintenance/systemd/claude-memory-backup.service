@@ -1,0 +1,10 @@
+# Install: cp claude-memory-backup.{service,timer} ~/.config/systemd/user/
+#          systemctl --user daemon-reload && systemctl --user enable --now claude-memory-backup.timer
+# Config lives in ~/.config/claude-memory/backup.env (BACKUP_ENABLED=0 = local git only).
+[Unit]
+Description=Claude Code memory: local git commit + index gate + restic snapshot (homelab#1800)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.claude/skills/memory-maintenance/bin/memory-backup.sh
+Nice=10

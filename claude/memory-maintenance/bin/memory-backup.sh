@@ -81,6 +81,9 @@ for d in "${good_dirs[@]}"; do
 done
 
 # --- 3. secrets ----------------------------------------------------------------
+# Missing gitleaks is SAID, not skipped: under systemd, brew's bin is not on
+# PATH and the scan vanished without a word (2026-11-02). Add the dir to PATH
+# in backup.env.
 if command -v gitleaks >/dev/null 2>&1; then
   for d in "${good_dirs[@]}"; do
     if ! gitleaks dir "$d" --no-banner --redact --log-level error >/dev/null 2>&1; then
@@ -88,6 +91,8 @@ if command -v gitleaks >/dev/null 2>&1; then
       rc=1
     fi
   done
+else
+  log "WARN gitleaks not found on PATH — secrets scan did NOT run (PATH=$PATH)"
 fi
 
 # --- 4. restic -----------------------------------------------------------------
@@ -97,6 +102,10 @@ if [[ "$BACKUP_ENABLED" != 1 ]]; then
 fi
 if [[ ${#good_dirs[@]} -eq 0 ]]; then
   log "no dir passed the git step — nothing to snapshot"
+  exit 1
+fi
+if ! command -v restic >/dev/null 2>&1; then
+  log "FAIL restic not found on PATH — no snapshot (PATH=$PATH; extend PATH in $ENV_FILE)"
   exit 1
 fi
 

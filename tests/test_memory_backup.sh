@@ -74,6 +74,18 @@ PATH="$T/fb:$PATH" bash "$SCRIPT" >"$T/out" 2>&1; rc=$?
 [ "$rc" != 0 ] && ok "restic fails: non-zero exit" || bad "restic fails: exit 0"
 [ ! -e "$STAMP" ] && ok "restic fails: no success stamp" || bad "restic fails: stamp written"
 
+# --- 3b. tools missing from PATH must be named, not swallowed ---------------
+# Under systemd, brew's bin is not on PATH: restic and gitleaks both vanished,
+# and the first run said only "FAIL restic backup/forget" (2026-11-02).
+setup
+printf 'BACKUP_ENABLED=1\nRESTIC_REPOSITORY=/x\nRESTIC_PASSWORD_FILE=/x\n' > "$CLAUDE_MEMORY_BACKUP_ENV"
+minpath="$T/minbin"; mkdir -p "$minpath"
+for b in bash git python3 date hostname dirname wc tr mkdir cat; do ln -s "$(command -v $b)" "$minpath/$b"; done
+PATH="$minpath" bash "$SCRIPT" >"$T/out" 2>&1; rc=$?
+[ "$rc" != 0 ] && ok "no restic: non-zero exit" || bad "no restic: exit 0"
+grep -q 'restic not found on PATH' "$T/out" && ok "no restic: named" || { bad "no restic: not named"; cat "$T/out"; }
+grep -q 'gitleaks not found on PATH' "$T/out" && ok "no gitleaks: named" || bad "no gitleaks: silently skipped"
+
 # --- 4. real restic, local repo ----------------------------------------------
 if command -v restic >/dev/null 2>&1; then
   setup

@@ -12,6 +12,7 @@ skills/
 │   ├── diary/SKILL.md
 │   ├── doc-master/SKILL.md
 │   ├── homelab-memory/SKILL.md
+│   ├── memory-maintenance/      # MEMORY.md load-budget gate (bin/) + compaction method; portable
 │   ├── n8n-import-workflow/SKILL.md
 │   ├── owui-import-pipeline/SKILL.md
 │   ├── owui-memory-loader/SKILL.md

@@ -177,8 +177,28 @@ fi
 # (Ruleset bypassing the Actions App that regenerates a ConfigMap) and
 # neptune-4pro-klipper-backup (printer pushing config backups). The
 # heartbeat canary stopped at the next hourly tick.
-existing_ruleset=$(gh api "repos/$REPO/rulesets" \
-  --jq '[.[] | select(.enforcement=="active") | .name] | join(", ")' 2>/dev/null || echo "")
+#
+# Read the STATUS, not the body (skills#77, same bug audit.sh had): on error
+# `gh api` still prints the error JSON to stdout, so a 403 "Upgrade to GitHub
+# Pro" body used to be reported as a Ruleset name. A success is a JSON array;
+# anything else is a failure. Private-without-Pro is n/a; every other failure
+# fails CLOSED rather than silently skipping classic protection.
+existing_ruleset=""
+if rulesets_json=$(gh api "repos/$REPO/rulesets" 2>/dev/null) \
+   && echo "$rulesets_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  existing_ruleset=$(echo "$rulesets_json" \
+    | jq -r '[.[] | select(.enforcement=="active") | .name] | join(", ")')
+elif [ "$visibility" = "private" ] \
+     && echo "${rulesets_json:-}" | grep -q 'Upgrade to GitHub Pro'; then
+  echo "    branch protection n/a (private, no Pro)"
+  echo
+  echo "Done. Run audit.sh $REPO to confirm."
+  exit 0
+else
+  echo "    FAILED to list rulesets for $REPO — refusing to guess protection state:" >&2
+  echo "    ${rulesets_json:-<no output>}" >&2
+  exit 1
+fi
 if [ -n "$existing_ruleset" ]; then
   echo "    SKIPPED classic protection — already protected by Ruleset(s): $existing_ruleset"
   echo "    (classic would enforce in parallel with no bypass list and break any bypassed actor)"

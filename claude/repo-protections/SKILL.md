@@ -150,7 +150,7 @@ This convention was established 2026-05-26 (homelab#238) after the initial "skip
 # 0. Resolve the skills-repo root from the symlink — works no matter where
 #    dvystrcil/skills was cloned (default ~/Code/skills; a portable install
 #    may clone it elsewhere via SKILLS_REPO_DIR). Do NOT hardcode ~/Code/skills.
-SKILLS_REPO="$(cd "$(dirname "$(readlink -f ~/.claude/skills/repo-protections)")/../.." && pwd)"
+SKILLS_REPO="$(cd "$(readlink -f ~/.claude/skills/repo-protections)/../.." && pwd)"
 
 # 1. Audit current state
 "$SKILLS_REPO/repo-protections/bin/audit.sh" dvystrcil/<repo>

@@ -41,15 +41,40 @@ check. It finds `projects/*/memory/MEMORY.md` under `$CLAUDE_CONFIG_DIR` or
 **Keep ≥ ~3,000 chars of headroom.** The homelab index grew ~230 chars/day;
 headroom is a runway, not a fix.
 
+## Audit — orphans and unused entries (report only)
+
+```bash
+~/.claude/skills/memory-maintenance/bin/memory-audit.py --memory-dir "$M"            # text
+~/.claude/skills/memory-maintenance/bin/memory-audit.py --memory-dir "$M" --json     # machine
+~/.claude/skills/memory-maintenance/bin/memory-audit.py --memory-dir "$M" --names-only --days 30
+```
+
+It never writes. Exit 0 = clean, 1 = findings, 2 = usage / no `MEMORY.md`.
+
+- **Orphans.** Every topic file, and every `](x.md)` link in the index and
+  archive, is LIVE, ORPHAN (a `type_name.md` file with no line, or a line whose
+  file is gone) or UNDECIDED (a stray `.md` outside the
+  `(user|feedback|project|reference)_*.md` pattern, or a link out of the dir).
+  Salvage an ORPHAN file into the archive before removing anything.
+- **Unused.** Index entries whose file no transcript (`projects/**/*.jsonl`)
+  shows a session using in N days, oldest first. "Used" = a Read/Write/Edit
+  `tool_use` on the file, or its re-attachment after a compaction. Relevance
+  recall (`<system-reminder>` injection) is **not** recorded per file, so it
+  can't be counted. Sessions rarely Read memory: on the homelab laptop
+  (2026-11-04) 117 of 139 entries had never been Read in 40 days. Treat the
+  list as a review queue, never as an archive command.
+
 ## Compact — archive, never delete
 
 1. **Pick candidates.** Archiving moves whole lines verbatim into
    `MEMORY-ARCHIVE.md` (same dir; the harness does not load it). Topic files
    stay on disk and are still recalled on relevance via their `description:`,
    so de-indexing ≠ deleting.
-   Best candidates: entries not *read* in recent sessions (transcripts show
-   which `memory/*.md` files were opened), then project status, `reference_*`,
-   and narrow app-specific gotchas. Keep behavioural `feedback_*` guards.
+   Start from `memory-audit.py`'s unused list, reviewed by hand: an entry
+   never Read can still be doing its job through the always-loaded index. Then
+   project status, `reference_*`, and narrow app-specific gotchas. Keep
+   behavioural `feedback_*` guards. `--names-only` output goes to the archiver
+   unchanged (`| xargs -d '\n' archive-memory-lines.py ... --dry-run`).
 2. **Archive with the script**, never by hand. Names are the link text,
    `- [name](file.md)`:
 

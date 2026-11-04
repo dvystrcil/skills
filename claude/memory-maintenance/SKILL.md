@@ -43,23 +43,47 @@ headroom is a runway, not a fix.
 
 ## Compact — archive, never delete
 
-1. **Snapshot first:** copy `MEMORY.md` and `MEMORY-ARCHIVE.md` somewhere
-   outside the memory dir.
-2. **Archive whole lines verbatim** into `MEMORY-ARCHIVE.md` (same dir; the
-   harness does not load it). Topic files stay on disk and are still recalled
-   on relevance via their `description:` — de-indexing ≠ deleting.
+1. **Pick candidates.** Archiving moves whole lines verbatim into
+   `MEMORY-ARCHIVE.md` (same dir; the harness does not load it). Topic files
+   stay on disk and are still recalled on relevance via their `description:`,
+   so de-indexing ≠ deleting.
    Best candidates: entries not *read* in recent sessions (transcripts show
    which `memory/*.md` files were opened), then project status, `reference_*`,
    and narrow app-specific gotchas. Keep behavioural `feedback_*` guards.
+2. **Archive with the script**, never by hand. Names are the link text,
+   `- [name](file.md)`:
+
+   ```bash
+   A=~/.claude/skills/memory-maintenance/bin/archive-memory-lines.py
+   M=~/.claude/projects/<project>/memory
+   $A --memory-dir "$M" --section "narrow gotchas" --dry-run name-one name-two
+   $A --memory-dir "$M" --section "narrow gotchas" name-one name-two
+   ```
+
+   In one run it:
+   - refuses, writing nothing, any name that matches 0 or more than 1 index
+     lines (prefixes don't count)
+   - backs up both files to `~/.local/state/claude-memory/archive-backups/<ts>/`
+     (`--backup-dir` to change; refused if inside the memory dir)
+   - moves the lines verbatim under `## Archived <date> — <section>`
+   - recounts the `> N more hooks` pointer as distinct archived-only links,
+     compared byte-exact (`LC_ALL=C` semantics)
+   - re-reads both files and checks that no line was lost, no `.md` link was
+     dropped, every index link resolves, and the pointer is right. If any of
+     that fails it **restores both files from the backup** (exit 3).
+   - runs `check-memory-index.py` on the result
+
+   Exit 0 = archived and the index loads whole. 1 = archived, but the check
+   still fails, so archive more. 2 = refused. 3 = restored.
 3. **Shorten long hooks** (`- [title](file.md) — hook`, aim ≤ 150 chars) and
    put the **original line verbatim** in an archive section, so no wording is
-   lost.
-4. **Verify losslessly with a script**, not by eye: every pre-compaction line
-   from both files exists verbatim in the new index or new archive, no `.md`
-   link was dropped, and every index link resolves to a file.
-5. **Re-run the check** — exit 0, and note the headroom.
+   lost. The script doesn't do this one. Snapshot both files first and verify
+   the same way: every old line is still present in one of the two files, and
+   no link was dropped.
+4. **Note the headroom** from the check's output.
 
-Never let a tool rewrite the whole index from an LLM's judgment without step 4.
+Never let a tool rewrite the whole index from an LLM's judgment without the
+lossless verify.
 
 ## History + backup (hourly)
 

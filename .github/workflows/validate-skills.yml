@@ -24,6 +24,8 @@ on:
       # touching only the script must still run them.
       - "claude/**/bin/**"
       - "tests/**"
+      # skill-sync's CronJob command (tests/test_skill_sync_cronjob.py).
+      - "sync_to_owui.yaml"
       - ".github/workflows/validate-skills.yml"
   workflow_dispatch: {}
 

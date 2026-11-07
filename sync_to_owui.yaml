@@ -5,12 +5,6 @@ metadata:
   namespace: open-webui
 spec:
   schedule: "0 * * * *"
-  # SUSPENDED for the owui-postgres PGO -> CNPG import (dvystrcil/argocd-projects#310,
-  # open-webui PR A). This job writes the owui database, and the import (a
-  # pg_dump of the PGO primary) must see no writes. It resumes in the follow-up
-  # PR, which also points DATABASE_URL at the CNPG Pooler with the
-  # owui-postgres-app password (the old PGO owui password stops working on CNPG).
-  suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -29,15 +23,27 @@ spec:
               command:
                 - sh
                 - -c
+                # DATABASE_URL: CNPG's app URI pointed at the Pooler
+                # (dvystrcil/argocd-projects#310). fqdn-uri names the primary,
+                # owui-postgres-rw; swap in owui-postgres-pooler-rw and leave
+                # the URL-encoded password alone. Same swap as open-webui's
+                # base/pooler-database-url.py. The assignment carries
+                # python's exit status, so an unexpected host stops the job.
                 - |
+                  DATABASE_URL="$(python -c 'import os, sys
+                  rw = "@owui-postgres-rw.open-webui.svc.cluster.local:"
+                  u = os.environ.get("DB_URL_RW", "")
+                  if u.count(rw) != 1: sys.exit("skill-sync: DB_URL_RW does not name host " + rw.strip("@:") + " exactly once")
+                  sys.stdout.write(u.replace(rw, "@owui-postgres-pooler-rw.open-webui.svc.cluster.local:"))')" || exit 1
+                  export DATABASE_URL
                   pip install psycopg2-binary --quiet && \
                   SKILLS_FLAT_DIR=/skills python /skills/sync_to_owui.py
               env:
-                - name: DATABASE_URL
+                - name: DB_URL_RW
                   valueFrom:
                     secretKeyRef:
-                      name: owui-postgres-pguser-owui
-                      key: pgbouncer-uri
+                      name: owui-postgres-app
+                      key: fqdn-uri
               volumeMounts:
                 - name: skills
                   mountPath: /skills

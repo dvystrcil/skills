@@ -49,6 +49,12 @@ echo "    default branch: $default_branch  (visibility: $visibility)"
 # IU_APP_ID env var overrides the default homelab IU app id (the argocd
 # repo-creds secret labeled argocd.argoproj.io/secret-type=repo-creds).
 IU_APP_ID="${IU_APP_ID:-378815}"
+# The CICD App (dvystrcil-ci-cd). homelab's auto-merge gate merges bot PRs
+# through this bypass with `gh pr merge --admin` (homelab D-037, #1225).
+# `pull_request` mode only: merge past review, never force-push or delete.
+# It MUST be in the payload: the update below is a PUT, which replaces the
+# whole bypass list, so leaving it out silently removed a hand-added entry.
+CICD_APP_ID="${CICD_APP_ID:-3693085}"
 is_cd_repo=0
 if gh api "repos/$REPO/contents/image-updater" >/dev/null 2>&1; then
   is_cd_repo=1
@@ -107,6 +113,7 @@ if [ "$is_cd_repo" = "1" ]; then
     --arg name "$ruleset_name" \
     --arg branch "$default_branch" \
     --argjson app_id "$IU_APP_ID" \
+    --argjson cicd_id "$CICD_APP_ID" \
     '{
       name: $name,
       target: "branch",
@@ -117,7 +124,9 @@ if [ "$is_cd_repo" = "1" ]; then
         # and GitHub forbids self-approval, so without an admin bypass the
         # owner can never merge their own PRs into a CD repo. Keeps review
         # as the default gate; admin bypasses when needed. (homelab, 2026-07-17)
-        {actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always"}
+        {actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always"},
+        # CICD App: the auto-merge gate (homelab D-037). See CICD_APP_ID.
+        {actor_id: $cicd_id, actor_type: "Integration", bypass_mode: "pull_request"}
       ],
       conditions: {ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}},
       rules: [

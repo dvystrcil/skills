@@ -24,6 +24,41 @@ check() {
   fi
 }
 
+# homelab D-037 (#1225): the auto-merge gate merges bot PRs through the CICD
+# App's Ruleset bypass. In `pull_request` mode it can merge past review and
+# nothing else. Wider (`always`, `exempt`) would also hand it force-push and
+# branch deletion.
+IU_APP_ID="${IU_APP_ID:-378815}"
+CICD_APP_ID="${CICD_APP_ID:-3693085}"
+
+# iu_bypass_id <ruleset-json>: the IU App's actor id if it is a bypass actor.
+# Matched BY ID: "the first Integration" was satisfied by any App at all.
+iu_bypass_id() {
+  echo "$1" | jq -r --argjson id "$IU_APP_ID" \
+    '[.bypass_actors[]? | select(.actor_type=="Integration" and .actor_id==$id) | .actor_id][0] // empty'
+}
+
+# Repos where the CICD App pushes to main DIRECTLY, by design, and so needs
+# `always` (pull_request mode can't push). Each entry names its reason.
+#   dvystrcil/skills  rebuild-configmap.yml commits the regenerated ConfigMap
+declare -A CICD_DIRECT_PUSH_REPOS=(
+  [dvystrcil/skills]="rebuild-configmap.yml pushes the regenerated ConfigMap to main"
+)
+
+# cicd_bypass_verdict <ruleset-json> <required 1|0> [owner/repo]: ok | missing | too-wide.
+# CD repos' canonical Ruleset requires it; elsewhere it is opt-in, and never
+# wider than pull_request unless the repo is in CICD_DIRECT_PUSH_REPOS.
+cicd_bypass_verdict() {
+  local mode
+  mode=$(echo "$1" | jq -r --argjson id "$CICD_APP_ID" \
+    '[.bypass_actors[]? | select(.actor_type=="Integration" and .actor_id==$id) | .bypass_mode][0] // "none"')
+  case "$mode" in
+    pull_request) echo ok ;;
+    none) if [ "$2" = 1 ]; then echo missing; else echo ok; fi ;;
+    *) if [ -n "${3:-}" ] && [ -n "${CICD_DIRECT_PUSH_REPOS[$3]:-}" ]; then echo ok; else echo too-wide; fi ;;
+  esac
+}
+
 audit_one() {
   local repo="$1"
   echo
@@ -189,7 +224,7 @@ audit_one() {
       ruleset=$(gh api "repos/$repo/rulesets/$ruleset_id" 2>/dev/null)
       local enforcement bypass
       enforcement=$(echo "$ruleset" | jq -r '.enforcement')
-      bypass=$(echo "$ruleset" | jq -r '.bypass_actors[] | select(.actor_type=="Integration") | .actor_id' | head -1)
+      bypass=$(iu_bypass_id "$ruleset")
       local admin_bypass
       admin_bypass=$(echo "$ruleset" | jq -r '.bypass_actors[] | select(.actor_type=="RepositoryRole" and .actor_id==5) | .actor_id' | head -1)
       check "Ruleset enforcement"   "$enforcement" "active"
@@ -198,6 +233,7 @@ audit_one() {
       else
         check "Ruleset IU bypass" "missing" "present"
       fi
+      check "Ruleset CICD merge bypass" "$(cicd_bypass_verdict "$ruleset" 1 "$repo")" "ok"
       # Solo operator can't merge own PRs without an admin bypass (the
       # review requirement is otherwise unsatisfiable). See apply.sh.
       if [ -n "$admin_bypass" ]; then
@@ -236,6 +272,12 @@ audit_one() {
     fi
     if [ -n "$active_rulesets" ]; then
       printf "  \033[32m✓\033[0m %-32s via Ruleset: %s\n" "branch protection" "$active_rulesets"
+      # The CICD bypass is opt-in here, but never wider than pull_request.
+      local rid
+      for rid in $(echo "$rulesets_json" | jq -r '.[] | select(.enforcement=="active") | .id'); do
+        check "Ruleset $rid CICD bypass" \
+          "$(cicd_bypass_verdict "$(gh api "repos/$repo/rulesets/$rid" 2>/dev/null || echo '{}')" 0 "$repo")" "ok"
+      done
     elif [ "$vis" = "private" ]; then
       printf "  \033[33m·\033[0m %-32s n/a (private repo, no Pro)\n" "branch protection"
     else
@@ -256,6 +298,9 @@ audit_one() {
     check "dismiss stale reviews"    "$stale"     "true"
   fi
 }
+
+# Sourced (tests): define the functions above and stop.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
 
 if [ "${1:-}" = "--all" ]; then
   mapfile -t repos < <(gh repo list "$OWNER" --visibility public --limit 100 --json nameWithOwner --jq '.[].nameWithOwner')

@@ -5,6 +5,12 @@ metadata:
   namespace: open-webui
 spec:
   schedule: "0 * * * *"
+  # SUSPENDED for the owui-postgres PGO -> CNPG import (dvystrcil/argocd-projects#310,
+  # open-webui PR A). This job writes the owui database, and the import (a
+  # pg_dump of the PGO primary) must see no writes. It resumes in the follow-up
+  # PR, which also points DATABASE_URL at the CNPG Pooler with the
+  # owui-postgres-app password (the old PGO owui password stops working on CNPG).
+  suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3

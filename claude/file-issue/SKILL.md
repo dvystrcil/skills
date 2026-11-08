@@ -29,9 +29,9 @@ local model in ~25-50 s and prints 2-3 lines. Design and eval:
 | exit | meaning | you do |
 |---|---|---|
 | 0 | filed: prints `[repo] title … lane=` and the URL | report the URL |
-| 5 | `DUPLICATE <url>` | report the existing issue; comment on it if you have new facts |
+| 5 | `DUPLICATE <url>` + `reason:`: confirmed (the reason quotes the candidate and the titles share most keywords) | report the existing issue; comment on it if you have new facts |
+| 2 | `POSSIBLE DUPLICATE <url>` + `reason:`: the model flagged it but the check didn't confirm it. (Rarely: a new candidate appeared between searches, listed by the gate) | `gh issue view <url>`. Same deliverable → report it, file nothing. Only related → re-run the same command with `--ack <url>` |
 | 1 | draft failed validation twice | re-run with more `--context`, or use the fallback below |
-| 2 | new duplicate candidates appeared | read them, then the fallback below with `--ack` |
 | 3 | GitHub or Ollama error | say so. Do not silently write it yourself. |
 
 **Don't read the filed issue back** just to admire it. The gate already

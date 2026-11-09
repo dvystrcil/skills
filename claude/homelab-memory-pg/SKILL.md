@@ -50,10 +50,13 @@ env:
     required: true
     description: |
       Postgres connection URI for the homelab_memory database. The
-      cluster MCP server reads the PGO-managed `pgbouncer-uri` from
-      secret `open-webui/owui-postgres-pguser-homelab` and exports it
-      as PG_URI before dispatching. NEVER build the URI from parts —
-      per PGO quirks memory, password chars break query-string assembly.
+      cluster MCP server gets it from Infisical `HOMELAB_MEMORY_PG_URI`
+      (role `homelab` via the CNPG Pooler
+      `owui-postgres-pooler-rw.open-webui.svc.cluster.local:5432`, the
+      password URL-encoded) and exports it as PG_URI before dispatching.
+      NEVER build the URI from parts: password chars break unencoded
+      query-string assembly. (Was PGO's `owui-postgres-pguser-homelab`
+      until argocd-projects#310.)
 
 ---
 

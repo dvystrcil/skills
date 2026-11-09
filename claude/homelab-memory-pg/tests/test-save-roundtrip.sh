@@ -3,8 +3,9 @@
 # Postgres table with correct (user_id, domain, name, type) scope.
 #
 # Prereq: PG_URI env var pointing at the homelab_memory database. Local
-# dev: kubectl port-forward svc/owui-postgres-pgbouncer 5432:5432 -n
-# open-webui, then export PG_URI from secret owui-postgres-pguser-homelab.
+# dev: kubectl port-forward svc/owui-postgres-pooler-rw 5432:5432 -n
+# open-webui, then export PG_URI = Infisical HOMELAB_MEMORY_PG_URI with the
+# host swapped for localhost (role homelab; CNPG since argocd-projects#310).
 #
 # This test is the AC2/AC3 deliverable for homelab#161 — the primitive
 # the OWUI bridge Function (Tool type) will call once shape 1 is ratified.

@@ -110,6 +110,37 @@ It never writes. Exit 0 = clean, 1 = findings, 2 = usage / no `MEMORY.md`.
 Never let a tool rewrite the whole index from an LLM's judgment without the
 lossless verify.
 
+## Format check — one file you just wrote
+
+```bash
+~/.claude/skills/memory-maintenance/bin/check-memory-file.py --require-index "$M/feedback_x.md"
+```
+
+Claude Code and opencode write into the same dir (homelab#2002), so a new file
+must be in the shape both read: frontmatter with `name:`, `description:` and a
+type (`metadata:` → `type:`); a `<type>_<snake_case>.md` name; for feedback and
+project memories a `**Why:**` line and a `**How to apply:**` line with text in
+the body; with `--require-index`, a link from `MEMORY.md` or the archive. Exit
+0 = ok, 1 = problems (printed per file), 2 = usage. It checks files as they
+are written. It doesn't check the legacy store: on 2026-11-09, 112 older
+feedback/project files had no `**Why:**`.
+
+## Archive recall — both tools
+
+`bin/memory-recall.py` brings an archived entry back when a prompt is about
+it. Neither tool loads `MEMORY-ARCHIVE.md` otherwise. It prints the entry's
+absolute path and hook, so the agent can read the file.
+
+| tool | wiring |
+|---|---|
+| Claude Code | `UserPromptSubmit` hook: `memory-recall.py --claude-hook` (memory dir taken from the hook's `transcript_path`) |
+| opencode | `prompt` hook plugin, `homelab/opencode/plugins/memory-recall/` |
+
+The matching is deterministic, with no model call. An entry needs **two
+matching words that are rare** across the archive (in at most 1% of entries,
+minimum 3). Prompts over 40 distinct words are skipped. On 120 real prompts
+this put a block on 6 of them, against 18 of 30 for "any two matching words".
+
 ## History + backup (hourly)
 
 `bin/memory-backup.sh` (systemd units in `systemd/`):

@@ -82,7 +82,8 @@ Usage:
 
 Env:
   PG_URI     Postgres URI for the homelab_memory database
-             (read pgbouncer-uri from secret owui-postgres-pguser-homelab)
+             (Infisical HOMELAB_MEMORY_PG_URI: homelab@ the CNPG Pooler
+              owui-postgres-pooler-rw, URL-encoded password)
 USAGE
     [[ "${subcommand}" == "" ]] && exit 2 || exit 0
     ;;

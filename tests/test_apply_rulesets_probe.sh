@@ -62,11 +62,13 @@ expect() {  # desc, condition-result
   if [ "$2" = 0 ]; then echo "ok - $1"; else echo "FAIL - $1"; echo "$out" | sed 's/^/    | /'; fail=1; fi
 }
 
-# 1. Private repo, no Pro: 403 is "n/a", not "protected by Ruleset".
+# 1. Private repo, 403 "Upgrade to GitHub Pro": since the account went Pro
+#    (2026-11-10) this means the plan lapsed -- fail closed, never "n/a" and
+#    never "protected by Ruleset". (tests/test_repo_protections_private_pro.sh)
 run_apply pro403
-expect "403 Pro: exits 0" "$([ "$rc" = 0 ]; echo $?)"
-expect "403 Pro: reports n/a (private, no Pro)" \
-  "$(grep -q 'branch protection n/a (private, no Pro)' <<<"$out"; echo $?)"
+expect "403 Pro: exits non-zero" "$([ "$rc" != 0 ]; echo $?)"
+expect "403 Pro: does NOT report n/a" \
+  "$(! grep -q 'n/a' <<<"$out"; echo $?)"
 expect "403 Pro: does NOT claim a Ruleset protects it" \
   "$(! grep -q 'already protected by Ruleset' <<<"$out"; echo $?)"
 

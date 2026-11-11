@@ -31,6 +31,14 @@ if [ -z "$REPO" ]; then
   exit 2
 fi
 
+# The account has been on GitHub Pro since 2026-11-10, so protection is
+# available on private repos too. A 403 "Upgrade to GitHub Pro" is no longer
+# an expected "n/a" -- it means the plan lapsed, and that is a failure.
+pro_lapsed_hint() {
+  echo "    (a 403 'Upgrade to GitHub Pro' on a private repo means the account's"
+  echo "     GitHub Pro plan lapsed -- private-repo protection depends on it)"
+}
+
 echo "==> Applying canonical settings to $REPO"
 
 # Confirm repo exists + grab default branch
@@ -89,20 +97,15 @@ if [ "$is_cd_repo" = "1" ]; then
       || { echo "    FAILED to delete classic protection" >&2; exit 1; }
   fi
 
-  # Rulesets are unavailable on private repos without GitHub Pro. Detect
-  # via a probing list call — if it 403s, skip protection gracefully (same
-  # as the classic Branch Protection skip below).
+  # Any failure to list Rulesets is a failure, private or not. The account
+  # has been on GitHub Pro since 2026-11-10; before that a private repo's 403
+  # was "SKIPPED" with exit 0, and every private CD repo stayed unprotected
+  # while this script reported success. A 403 now means the plan lapsed.
   if ! gh api "repos/$REPO/rulesets" >/dev/null 2>&1; then
-    if [ "$visibility" = "private" ]; then
-      echo "    SKIPPED — private repo without GitHub Pro can't use Rulesets (or Branch Protection)"
-      echo
-      echo "Done. Run audit.sh $REPO to confirm."
-      exit 0
-    else
-      echo "    FAILED — could not list rulesets on a public repo (auth or network issue):" >&2
-      gh api "repos/$REPO/rulesets" >&2 || true
-      exit 1
-    fi
+    echo "    FAILED — could not list rulesets ($visibility repo):" >&2
+    gh api "repos/$REPO/rulesets" >&2 || true
+    pro_lapsed_hint >&2
+    exit 1
   fi
 
   # Check if a ruleset already exists with the canonical name (idempotent).
@@ -190,22 +193,19 @@ fi
 # Read the STATUS, not the body (skills#77, same bug audit.sh had): on error
 # `gh api` still prints the error JSON to stdout, so a 403 "Upgrade to GitHub
 # Pro" body used to be reported as a Ruleset name. A success is a JSON array;
-# anything else is a failure. Private-without-Pro is n/a; every other failure
-# fails CLOSED rather than silently skipping classic protection.
+# anything else is a failure. Every failure fails CLOSED -- including the
+# private-repo "Upgrade to GitHub Pro" 403, which used to be reported as
+# "n/a" with exit 0 (the account is on Pro since 2026-11-10; see
+# pro_lapsed_hint).
 existing_ruleset=""
 if rulesets_json=$(gh api "repos/$REPO/rulesets" 2>/dev/null) \
    && echo "$rulesets_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
   existing_ruleset=$(echo "$rulesets_json" \
     | jq -r '[.[] | select(.enforcement=="active") | .name] | join(", ")')
-elif [ "$visibility" = "private" ] \
-     && echo "${rulesets_json:-}" | grep -q 'Upgrade to GitHub Pro'; then
-  echo "    branch protection n/a (private, no Pro)"
-  echo
-  echo "Done. Run audit.sh $REPO to confirm."
-  exit 0
 else
   echo "    FAILED to list rulesets for $REPO — refusing to guess protection state:" >&2
   echo "    ${rulesets_json:-<no output>}" >&2
+  pro_lapsed_hint >&2
   exit 1
 fi
 if [ -n "$existing_ruleset" ]; then
@@ -242,16 +242,13 @@ if echo "$protection_payload" | gh api -X PUT \
      --input - >/dev/null 2>&1; then
   echo "    protection applied"
 else
-  if [ "$visibility" = "private" ]; then
-    echo "    SKIPPED — private repo without GitHub Pro can't use branch protection"
-  else
-    echo "    FAILED — re-running with verbose output:" >&2
-    echo "$protection_payload" | gh api -X PUT \
-      -H "Accept: application/vnd.github+json" \
-      "repos/$REPO/branches/$default_branch/protection" \
-      --input - >&2 || true
-    exit 1
-  fi
+  echo "    FAILED — re-running with verbose output:" >&2
+  echo "$protection_payload" | gh api -X PUT \
+    -H "Accept: application/vnd.github+json" \
+    "repos/$REPO/branches/$default_branch/protection" \
+    --input - >&2 || true
+  pro_lapsed_hint >&2
+  exit 1
 fi
 
 # --- Optional: open a PR to add .github/CODEOWNERS ---

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Audit a GitHub repo (or all public repos in the dvystrcil org) against the
+# Audit a GitHub repo (or every non-archived repo owned by $OWNER) against the
 # canonical convention defined in this skill.
 #
 # Usage:
 #   audit.sh <owner/repo>           # audit one repo
-#   audit.sh --all                  # audit every public repo owned by $OWNER
+#   audit.sh --all                  # audit every non-archived repo (public + private)
 #
 # Exit code: 0 if everything matches the convention, 1 if any drift.
 
@@ -193,14 +193,11 @@ audit_one() {
   local prot
   prot=$(gh api "repos/$repo/branches/$def/protection" 2>/dev/null || echo "")
   if [ "$is_cd_repo" = "1" ]; then
-    # Rulesets aren't available on private repos without GitHub Pro.
-    # Probe the list endpoint; if 403, mark as n/a (informational, not drift).
+    # A failed Ruleset fetch is drift on any repo. Before the account moved
+    # to GitHub Pro (2026-11-10) a private repo's 403 was printed as "n/a",
+    # so private CD repos passed while unprotected. A 403 now = Pro lapsed.
     if ! gh api "repos/$repo/rulesets" >/dev/null 2>&1; then
-      if [ "$vis" = "private" ]; then
-        printf "  \033[33m·\033[0m %-32s n/a (private CD repo, no Pro)\n" "Ruleset (IU bypass)"
-      else
-        check "Ruleset (IU bypass) — fetch error" "error" "ok"
-      fi
+      check "Ruleset (IU bypass) — fetch error ($vis)" "error" "ok"
       echo
       return
     fi
@@ -278,9 +275,9 @@ audit_one() {
         check "Ruleset $rid CICD bypass" \
           "$(cicd_bypass_verdict "$(gh api "repos/$repo/rulesets/$rid" 2>/dev/null || echo '{}')" 0 "$repo")" "ok"
       done
-    elif [ "$vis" = "private" ]; then
-      printf "  \033[33m·\033[0m %-32s n/a (private repo, no Pro)\n" "branch protection"
     else
+      # Private repos included: since GitHub Pro (2026-11-10) "private" is
+      # no excuse, and a 403 here (Pro lapsed) is the same drift.
       check "branch protection" "absent" "present"
     fi
   else
@@ -303,7 +300,9 @@ audit_one() {
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
 
 if [ "${1:-}" = "--all" ]; then
-  mapfile -t repos < <(gh repo list "$OWNER" --visibility public --limit 100 --json nameWithOwner --jq '.[].nameWithOwner')
+  # Every non-archived repo, private included (GitHub Pro since 2026-11-10).
+  # Archived repos are read-only: nothing on them can drift or be fixed.
+  mapfile -t repos < <(gh repo list "$OWNER" --no-archived --limit 1000 --json nameWithOwner --jq '.[].nameWithOwner')
   for r in "${repos[@]}"; do audit_one "$r"; done
 elif [ -n "${1:-}" ]; then
   audit_one "$1"

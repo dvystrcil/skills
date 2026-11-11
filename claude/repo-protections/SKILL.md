@@ -115,7 +115,9 @@ stay exempt either way.
 | `delete_branch_on_merge` | true | Stops stale branches from accumulating |
 | `has_issues` | true | Project board entries link to issues |
 
-### Branch protection on `main`
+### Branch protection on `main` (PUBLIC non-CD repos)
+
+Private non-CD repos get the solo Ruleset instead (next sections).
 
 | Rule | Value | Reason |
 |---|---|---|
@@ -140,7 +142,7 @@ stay exempt either way.
 > protection here stops nobody who is likely to push. Where that matters, use
 > the solo Ruleset below instead.
 
-### Solo Ruleset (no bypass) — the `homelab` pattern
+### Solo Ruleset (no bypass) — the `homelab` pattern, every private non-CD repo
 
 For a repo where "never push to `main`" has to actually hold for agents, not
 just be written down: a Ruleset named `main-protection` on `~DEFAULT_BRANCH`
@@ -155,18 +157,36 @@ merge, and 1 approval *with* an admin bypass makes every merge a bypass).
 | `required_status_checks` | only checks that run on **every** PR (no path filter); `integration_id: 15368` (GitHub Actions) |
 | `bypass_actors` | `[]` |
 
-Pick the required checks from history, not from the workflow list: list the
-check runs on the last ~30 merged PRs and require only the names present on
-all of them. A path-filtered check that's required blocks every PR it doesn't
-run on. Emergencies: switch the Ruleset's enforcement off in Settings (it's
-logged), don't add a bypass.
+Required checks come from history, not from the workflow list: `apply.sh`
+reads the GitHub Actions check runs on the last 30 merged PRs and requires
+only the names present on **all** of them. A path-filtered check that's
+required blocks every PR it doesn't run on. Fewer than 5 merged PRs (or no
+CI) → no `required_status_checks` rule at all. A check added recently (e.g.
+`gitleaks`, homelab#2079) isn't on all 30 yet and so isn't required until it
+is — re-run `apply.sh` later to pick it up. Emergencies: switch the Ruleset's
+enforcement off in Settings (it's logged), don't add a bypass.
 
-Applied to `dvystrcil/homelab` 2026-11-10 (Ruleset id 27005532; required
-checks `gitleaks` + `canaries`). `apply.sh` does not create this Ruleset yet —
-it's applied by hand with `gh api -X POST repos/<repo>/rulesets`. Not for CD
-repos: anything that pushes straight to `main` (image-updater, a canary, a
-codegen job) needs that actor as a bypass — the CD Ruleset in the next
-section is this same solo shape plus exactly one bypass actor, the IU App.
+`apply.sh` creates or updates it (in place, by name) on every **private**
+non-CD repo, strips any classic protection (it enforces in parallel and its
+`enforce_admins: false` is the hole being closed), and `--dry-run` prints the
+planned Ruleset without writing anything. `audit.sh` checks it is active,
+0 approvals, no role/admin bypass, bypass Apps exactly as listed, no classic
+protection. A private repo whose only protection is a hand-made Ruleset under
+another name (homelab-heartbeat, skills, neptune-4pro-klipper-backup — bot
+bypasses that predate this shape) is left alone by both scripts.
+
+**Bots that push to `main`.** A Ruleset with no bypass rejects them with
+`GH013`. Before rolling it onto a repo, list its `main` commits from the last
+~2 months that belong to no PR (`GET /repos/{o}/{r}/commits/{sha}/pulls` is
+empty). Each automated writer's App goes into `DIRECT_PUSH_APPS` in
+`bin/solo-ruleset.sh` — with the source its id was read from (the App's
+credential or a rule-suite log, never "a bypass that works elsewhere") — and
+becomes an `always` bypass actor. `audit.sh` flags both an unlisted bypass
+(a hole) and a listed App missing from the bypass (its pushes will break).
+
+Applied by hand to `dvystrcil/homelab` 2026-11-10 (Ruleset id 27005532;
+required checks `gitleaks` + `canaries`). CD repos use the CD Ruleset in the
+next section: this same solo shape plus exactly one bypass actor, the IU App.
 
 ### CD repos (image-updater writeback targets) use Rulesets with IU bypass
 

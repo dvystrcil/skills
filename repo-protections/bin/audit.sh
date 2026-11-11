@@ -59,6 +59,23 @@ cicd_bypass_verdict() {
   esac
 }
 
+# codeowners_required <owner/repo> <branch>: 1 if classic protection or an
+# active Ruleset on <branch> requires code-owner review, else 0.
+codeowners_required() {
+  local prot rid
+  if prot=$(gh api "repos/$1/branches/$2/protection" 2>/dev/null) \
+     && [ "$(echo "$prot" | jq -r '.required_pull_request_reviews.require_code_owner_reviews // false')" = true ]; then
+    echo 1; return
+  fi
+  for rid in $(gh api "repos/$1/rulesets" --jq '.[] | select(.enforcement=="active") | .id' 2>/dev/null); do
+    if gh api "repos/$1/rulesets/$rid" 2>/dev/null \
+         | jq -e 'any(.rules[]?; .type=="pull_request" and (.parameters.require_code_owner_review // false))' >/dev/null; then
+      echo 1; return
+    fi
+  done
+  echo 0
+}
+
 audit_one() {
   local repo="$1"
   echo
@@ -170,14 +187,22 @@ audit_one() {
   # friction on every merge from upstream. Without CODEOWNERS the
   # require_code_owner_reviews rule is vacuous (no path has an owner), so
   # the 1-approval requirement still holds.
-  local required_files="README.md .github/CODEOWNERS"
+  # CODEOWNERS is required only where a rule requires code-owner review
+  # (classic protection or a Ruleset with require_code_owner_review).
+  # Anywhere else it is DRIFT: since GitHub Pro (2026-11-10) code owners work
+  # on private repos too, and `* @owner` auto-requests the owner's review on
+  # every PR -- bot PRs included -- while gating nothing (the solo Rulesets
+  # require 0 approvals). cluster-ops#1049 was the first such email.
+  local required_files="README.md" codeowners_policy="absent"
   if [ "$machine_managed" = "1" ]; then
-    required_files=""
+    required_files=""; codeowners_policy="exempt"
     printf "  \033[33m·\033[0m %-32s exempt (machine-managed)\n" "file: README.md"
     printf "  \033[33m·\033[0m %-32s exempt (machine-managed)\n" "file: .github/CODEOWNERS"
   elif [ "$third_party_fork" = "1" ]; then
-    required_files="README.md"
+    codeowners_policy="exempt"
     printf "  \033[33m·\033[0m %-32s exempt (third-party fork)\n" "file: .github/CODEOWNERS"
+  elif [ "$(codeowners_required "$repo" "$def")" = 1 ]; then
+    codeowners_policy="present"
   fi
   for path in $required_files; do
     if gh api "repos/$repo/contents/$path" >/dev/null 2>&1; then
@@ -186,6 +211,15 @@ audit_one() {
       check "file: $path"            "missing"  "present"
     fi
   done
+  if [ "$codeowners_policy" != "exempt" ]; then
+    local have_owners="missing"
+    gh api "repos/$repo/contents/.github/CODEOWNERS" >/dev/null 2>&1 && have_owners="present"
+    if [ "$codeowners_policy" = "absent" ] && [ "$have_owners" = "missing" ]; then
+      printf "  \033[32m✓\033[0m %-32s %s\n" "file: .github/CODEOWNERS" "absent (no rule requires code-owner review)"
+    else
+      check "file: .github/CODEOWNERS" "$have_owners" "$codeowners_policy"
+    fi
+  fi
 
   # Branch protection / Ruleset.
   # Non-CD repos: classic Branch Protection on default branch.

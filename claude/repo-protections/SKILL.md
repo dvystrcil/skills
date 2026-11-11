@@ -1,6 +1,6 @@
 ---
 name: repo-protections
-description: Standard repository hygiene for new GitHub repos — MIT license, branch protection on main, squash/rebase only, CODEOWNERS file. Run after `gh repo create` and any time a repo (public or private) lacks these.
+description: Standard repository hygiene for new GitHub repos — MIT license, branch protection on main, squash/rebase only, CODEOWNERS only where a rule requires code-owner review. Run after `gh repo create` and any time a repo (public or private) lacks these.
 ---
 
 # Repo Protections
@@ -84,7 +84,21 @@ a service) don't need this.
 |---|---|---|
 | `LICENSE` | root | MIT, required for any public repo |
 | `README.md` | root | Project intent + install/use instructions |
-| `.github/CODEOWNERS` | `.github/` | Required because branch protection requires code-owner review |
+| `.github/CODEOWNERS` | `.github/` | **Only where a rule requires code-owner review** (classic protection below). Elsewhere it must be **absent** — see "CODEOWNERS is conditional" |
+
+### CODEOWNERS is conditional
+
+Since GitHub Pro (2026-11-10) code owners work on private repos too, and a
+`* @dvystrcil` CODEOWNERS file auto-requests the owner's review on **every
+PR, bot PRs included** — one email each (first seen on cluster-ops#1049,
+`dvystrcil-ci-cd[bot] requested your review … as a code owner`). The solo
+Rulesets (homelab's and the CD one) require 0 approvals and no code-owner
+review, so on those repos the file gates nothing and only makes noise.
+
+`audit.sh` therefore requires `.github/CODEOWNERS` only when classic
+protection or an active Ruleset requires code-owner review, and flags it
+`✗ got=present want=absent` everywhere else. Forks and machine-managed repos
+stay exempt either way.
 
 ### Default branch
 
@@ -197,9 +211,11 @@ SKILLS_REPO="$(cd "$(readlink -f ~/.claude/skills/repo-protections)/../.." && pw
 "$SKILLS_REPO/repo-protections/bin/audit.sh" dvystrcil/<repo>
 
 # 2. If files are missing locally, add them
-cp "$SKILLS_REPO/repo-protections/templates/CODEOWNERS" .github/CODEOWNERS
+#    CODEOWNERS ONLY if this repo will use classic protection (which requires
+#    code-owner review) -- never for a solo-Ruleset repo:
+#    cp "$SKILLS_REPO/repo-protections/templates/CODEOWNERS" .github/CODEOWNERS
 sed "s/{{YEAR}}/$(date +%Y)/" "$SKILLS_REPO/repo-protections/templates/LICENSE" > LICENSE
-git add LICENSE .github/CODEOWNERS && git commit -m "chore: add LICENSE + CODEOWNERS" && git push
+git add LICENSE && git commit -m "chore: add LICENSE" && git push
 
 # 3. Apply GH-side settings
 "$SKILLS_REPO/repo-protections/bin/apply.sh" dvystrcil/<repo>

@@ -1,6 +1,6 @@
 ---
 name: "Repo Protections"
-description: "Standard repo hygiene for new GitHub repos — MIT license, branch protection on main, squash/rebase only, CODEOWNERS file."
+description: "Standard repo hygiene for new GitHub repos — MIT license, branch protection on main, squash/rebase only, CODEOWNERS only where a rule requires code-owner review."
 tags: ["github", "gitops", "repo-hygiene", "license", "branch-protection"]
 scope: "complex"
 ---
@@ -35,7 +35,7 @@ public repo is found lacking them. **Not optional once a repo is public.**
 |---|---|---|
 | `LICENSE` | repo root | MIT, public repos must have one |
 | `README.md` | repo root | Intent + install/use |
-| `.github/CODEOWNERS` | `.github/` | Branch protection requires code-owner review |
+| `.github/CODEOWNERS` | `.github/` | Only where a rule requires code-owner review (classic protection). Elsewhere it must be absent: since GitHub Pro it auto-requests the owner's review on every PR, bot PRs included, while gating nothing |
 
 ### Default branch — always `main`, never `master`.
 

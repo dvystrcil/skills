@@ -115,9 +115,11 @@ stay exempt either way.
 | `delete_branch_on_merge` | true | Stops stale branches from accumulating |
 | `has_issues` | true | Project board entries link to issues |
 
-### Branch protection on `main` (PUBLIC non-CD repos)
+### Branch protection on `main` (FORKS only)
 
-Private non-CD repos get the solo Ruleset instead (next sections).
+Every other non-CD repo, private or public, gets the solo Ruleset instead
+(next section). Forks keep classic: a PR-required Ruleset with no bypass
+blocks GitHub's "Sync fork", which fast-forwards the default branch directly.
 
 | Rule | Value | Reason |
 |---|---|---|
@@ -142,7 +144,7 @@ Private non-CD repos get the solo Ruleset instead (next sections).
 > protection here stops nobody who is likely to push. Where that matters, use
 > the solo Ruleset below instead.
 
-### Solo Ruleset (no bypass) — the `homelab` pattern, every private non-CD repo
+### Solo Ruleset (no bypass) — the `homelab` pattern, every non-CD non-fork repo
 
 For a repo where "never push to `main`" has to actually hold for agents, not
 just be written down: a Ruleset named `main-protection` on `~DEFAULT_BRANCH`
@@ -166,12 +168,12 @@ CI) → no `required_status_checks` rule at all. A check added recently (e.g.
 is — re-run `apply.sh` later to pick it up. Emergencies: switch the Ruleset's
 enforcement off in Settings (it's logged), don't add a bypass.
 
-`apply.sh` creates or updates it (in place, by name) on every **private**
-non-CD repo, strips any classic protection (it enforces in parallel and its
+`apply.sh` creates or updates it (in place, by name) on every non-CD,
+non-fork repo — private since 2026-11-10, public since 2026-11-11 — strips any classic protection (it enforces in parallel and its
 `enforce_admins: false` is the hole being closed), and `--dry-run` prints the
 planned Ruleset without writing anything. `audit.sh` checks it is active,
 0 approvals, no role/admin bypass, bypass Apps exactly as listed, no classic
-protection. A private repo whose only protection is a hand-made Ruleset under
+protection. A repo whose only protection is a hand-made Ruleset under
 another name (homelab-heartbeat, skills, neptune-4pro-klipper-backup — bot
 bypasses that predate this shape) is left alone by both scripts.
 
@@ -183,6 +185,14 @@ empty). Each automated writer's App goes into `DIRECT_PUSH_APPS` in
 credential or a rule-suite log, never "a bypass that works elsewhere") — and
 becomes an `always` bypass actor. `audit.sh` flags both an unlisted bypass
 (a hole) and a listed App missing from the bypass (its pushes will break).
+
+**A `GITHUB_TOKEN` push can't be exempted.** On a user-owned repo GitHub
+rejects the GitHub Actions App (15368) as a bypass actor: `422 Actor GitHub
+Actions integration must be part of the ruleset source or owner organization`
+(homelab-weather, 2026-11-11). A workflow that pushes to `main` must push as
+one of the owner's Apps (mint a token with `actions/create-github-app-token`,
+as `rebuild-configmap.yml` here does) — and that App goes in the list.
+`apply.sh` refuses a list containing 15368 before writing anything.
 
 Applied by hand to `dvystrcil/homelab` 2026-11-10 (Ruleset id 27005532;
 required checks `gitleaks` + `canaries`). CD repos use the CD Ruleset in the

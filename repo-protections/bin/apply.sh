@@ -51,6 +51,7 @@ echo "==> Applying canonical settings to $REPO"
 meta=$(gh api "repos/$REPO")
 default_branch=$(echo "$meta" | jq -r '.default_branch')
 visibility=$(echo "$meta" | jq -r '.visibility')
+is_fork=$(echo "$meta" | jq -r '.fork')
 owner=${REPO%%/*}
 
 echo "    default branch: $default_branch  (visibility: $visibility)"
@@ -228,9 +229,17 @@ else
   exit 1
 fi
 
-# --- Private non-CD: the solo Ruleset (see solo-ruleset.sh) ---
-# Public repos stay on classic protection until the owner decides otherwise.
-if [ "$visibility" = "private" ]; then
+# --- Non-CD, non-fork (private AND public): the solo Ruleset (solo-ruleset.sh) ---
+# Public repos moved too (owner decision 2026-11-11). Forks keep classic: a
+# PR-required Ruleset with no bypass blocks GitHub's "Sync fork", which
+# fast-forwards the default branch directly.
+if [ "$is_fork" != "true" ]; then
+  bad_apps=$(unexemptable_apps "$REPO")
+  if [ -n "$bad_apps" ]; then
+    echo "    FAILED -- DIRECT_PUSH_APPS lists App $bad_apps (GitHub Actions), which GitHub" >&2
+    echo "    rejects as a bypass actor on a user-owned repo. Make that bot push as an App." >&2
+    exit 1
+  fi
   solo_id=$(echo "$rulesets_json" | jq -r --arg n "$SOLO_RULESET_NAME" '[.[] | select(.name==$n) | .id][0] // empty')
   others=$(echo "$rulesets_json" \
     | jq -r --arg n "$SOLO_RULESET_NAME" '[.[] | select(.enforcement=="active" and .name!=$n) | .name] | join(", ")')

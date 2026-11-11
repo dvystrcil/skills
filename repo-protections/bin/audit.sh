@@ -326,7 +326,8 @@ audit_one() {
       check "Ruleset admin bypass"       "$admin_bypass" "absent"
       check "Ruleset CICD bypass"        "$cicd_bypass"  "absent"
     fi
-  elif [ "$vis" = "private" ]; then
+  elif [ "$fork" != "true" ]; then
+    # Private and public alike (public since 2026-11-11). Forks keep classic.
     audit_solo "$repo" "$prot"
   elif [ -z "$prot" ] || echo "$prot" | grep -q '"message"'; then
     # No classic protection — but a Ruleset is equally valid protection,

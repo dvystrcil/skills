@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Shared by apply.sh and audit.sh: the solo Ruleset for plain (non-CD) private
-# repos -- the homelab `main-protection` pattern. Source it; it only defines.
+# Shared by apply.sh and audit.sh: the solo Ruleset for plain (non-CD,
+# non-fork) repos, private and public -- the homelab `main-protection` pattern. Source it; it only defines.
 #
 # Owner decision 2026-11-10, after GitHub Pro made private-repo protection
 # real: classic Branch Protection with 1 approval and enforce_admins:false lets
@@ -23,16 +23,27 @@ SOLO_CHECKS_MIN_PRS="${SOLO_CHECKS_MIN_PRS:-5}"  # fewer -> no required checks
 # Every id here was read from an authoritative source (the App's credential or
 # a rule-suite log), never copied from "a bypass that works elsewhere":
 #   3693085 dvystrcil-ci-cd (CICD App)  skills rule-suites: dvystrcil-ci-cd[bot] => bypass via 16666429
-#   15368   github-actions              GET /apps/github-actions
+#
+# NEVER the GitHub Actions App (15368). On a user-owned repo GitHub rejects it:
+#   422 "Actor GitHub Actions integration must be part of the ruleset source
+#        or owner organization"   (homelab-weather, 2026-11-11)
+# so a workflow pushing with GITHUB_TOKEN can't be exempted at all. It has to
+# push as one of the owner's Apps instead. apply.sh refuses 15368 up front.
 declare -A DIRECT_PUSH_APPS=(
-  # collector commits samples via the Contents API (~hourly, CICD App);
-  # derive.yml pushes derived data with GITHUB_TOKEN (Actions App).
-  [dvystrcil/homelab-weather]="3693085 15368"
+  # collector commits samples via the Contents API (~hourly, CICD App).
+  # derive.yml still pushes with GITHUB_TOKEN, so homelab-weather is NOT
+  # rolled out until it pushes as an App (owner decision pending).
+  [dvystrcil/homelab-weather]="3693085"
 )
 # Tests: DIRECT_PUSH_APPS_OVERRIDE='owner/repo=id,id'
 if [ -n "${DIRECT_PUSH_APPS_OVERRIDE:-}" ]; then
   DIRECT_PUSH_APPS[${DIRECT_PUSH_APPS_OVERRIDE%%=*}]="$(tr ',' ' ' <<<"${DIRECT_PUSH_APPS_OVERRIDE#*=}")"
 fi
+
+# unexemptable_apps <owner/repo>: listed ids GitHub won't take as a bypass.
+unexemptable_apps() {
+  direct_push_apps "$1" | jq -r --argjson gha "$GHA_INTEGRATION_ID" '[.[] | select(. == $gha)] | join(" ")'
+}
 
 # direct_push_apps <owner/repo>: JSON array of App ids, sorted.
 direct_push_apps() {

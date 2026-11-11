@@ -57,12 +57,6 @@ echo "    default branch: $default_branch  (visibility: $visibility)"
 # IU_APP_ID env var overrides the default homelab IU app id (the argocd
 # repo-creds secret labeled argocd.argoproj.io/secret-type=repo-creds).
 IU_APP_ID="${IU_APP_ID:-378815}"
-# The CICD App (dvystrcil-ci-cd). homelab's auto-merge gate merges bot PRs
-# through this bypass with `gh pr merge --admin` (homelab D-037, #1225).
-# `pull_request` mode only: merge past review, never force-push or delete.
-# It MUST be in the payload: the update below is a PUT, which replaces the
-# whole bypass list, so leaving it out silently removed a hand-added entry.
-CICD_APP_ID="${CICD_APP_ID:-3693085}"
 is_cd_repo=0
 if gh api "repos/$REPO/contents/image-updater" >/dev/null 2>&1; then
   is_cd_repo=1
@@ -108,37 +102,48 @@ if [ "$is_cd_repo" = "1" ]; then
     exit 1
   fi
 
-  # Check if a ruleset already exists with the canonical name (idempotent).
+  # Find the IU Ruleset to update (idempotent): the canonical name, or else
+  # any Ruleset that already lists the IU App as a bypass actor -- one made by
+  # hand under another name (open-webui and n8n-workflow use "main") must be
+  # updated in place, not shadowed by a second Ruleset.
   ruleset_name="main-protection-with-iu-bypass"
   existing_id=$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$ruleset_name\") | .id" 2>/dev/null || echo "")
+  if [ -z "$existing_id" ]; then
+    for rid in $(gh api "repos/$REPO/rulesets" --jq '.[].id' 2>/dev/null); do
+      if gh api "repos/$REPO/rulesets/$rid" 2>/dev/null \
+           | jq -e --argjson app "$IU_APP_ID" \
+               'any(.bypass_actors[]?; .actor_type=="Integration" and .actor_id==$app)' >/dev/null; then
+        existing_id="$rid"; break
+      fi
+    done
+  fi
 
+  # The solo CD Ruleset (owner decision 2026-11-10, after GitHub Pro): the IU
+  # App is the ONLY bypass actor, and 0 approvals. The old shape required 1
+  # approval with Repository admin (`always`) and the CICD App as bypass
+  # actors; on a solo account every merge went through the admin bypass, and
+  # `always` let the owner's credential -- every agent session -- push
+  # straight to main. With 0 approvals the owner merges normally and the
+  # auto-merge gate's plain merge succeeds (homelab D-037 tries it first), so
+  # neither bypass is needed.
   ruleset_payload=$(jq -nc \
     --arg name "$ruleset_name" \
-    --arg branch "$default_branch" \
     --argjson app_id "$IU_APP_ID" \
-    --argjson cicd_id "$CICD_APP_ID" \
     '{
       name: $name,
       target: "branch",
       enforcement: "active",
       bypass_actors: [
-        {actor_id: $app_id, actor_type: "Integration", bypass_mode: "always"},
-        # Repository admin (role id 5): a solo operator authors every PR
-        # and GitHub forbids self-approval, so without an admin bypass the
-        # owner can never merge their own PRs into a CD repo. Keeps review
-        # as the default gate; admin bypasses when needed. (homelab, 2026-07-17)
-        {actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always"},
-        # CICD App: the auto-merge gate (homelab D-037). See CICD_APP_ID.
-        {actor_id: $cicd_id, actor_type: "Integration", bypass_mode: "pull_request"}
+        {actor_id: $app_id, actor_type: "Integration", bypass_mode: "always"}
       ],
       conditions: {ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}},
       rules: [
         {type: "deletion"},
         {type: "non_fast_forward"},
         {type: "pull_request", parameters: {
-          required_approving_review_count: 1,
-          dismiss_stale_reviews_on_push: true,
-          require_code_owner_review: true,
+          required_approving_review_count: 0,
+          dismiss_stale_reviews_on_push: false,
+          require_code_owner_review: false,
           require_last_push_approval: false,
           required_review_thread_resolution: false
         }}

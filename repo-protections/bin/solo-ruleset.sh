@@ -25,6 +25,8 @@ SOLO_CHECKS_MIN_PRS="${SOLO_CHECKS_MIN_PRS:-5}"  # fewer -> no required checks
 #   3693085 dvystrcil-ci-cd (CICD App)  skills rule-suites: dvystrcil-ci-cd[bot] => bypass via 16666429
 #   5715971 dvystrcil-homelab-weather   owner, from the App's settings page (2026-11-11);
 #           client Iv23liIw1wD3KJsoUUwr; installed on homelab-weather only, Contents r/w
+#   4054155 GITSYNC_APP                 owner, from the App's settings page (2026-11-11);
+#           installation 140314699; installed on llm-wiki (+ quartz-viewer reads)
 #
 # NEVER the GitHub Actions App (15368). On a user-owned repo GitHub rejects it:
 #   422 "Actor GitHub Actions integration must be part of the ruleset source
@@ -37,6 +39,9 @@ declare -A DIRECT_PUSH_APPS=(
   # pushes derived/ every 3 h as its own App -- homelab-weather#13; its key is
   # a repo Actions secret so it keeps working with the cluster down.
   [dvystrcil/homelab-weather]="3693085 5715971"
+  # wiki-mcp's git-sync sidecar pushes autosync commits; wiki-import and
+  # wiki-lint push as the same App (llm-wiki#44), so one bypass covers all.
+  [dvystrcil/llm-wiki]="4054155"
 )
 # Tests: DIRECT_PUSH_APPS_OVERRIDE='owner/repo=id,id'
 if [ -n "${DIRECT_PUSH_APPS_OVERRIDE:-}" ]; then

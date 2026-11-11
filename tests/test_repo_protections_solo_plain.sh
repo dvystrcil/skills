@@ -40,7 +40,7 @@ args="$*"
 jqf() { if [[ "$args" == *" --jq "* ]]; then jq -r "${args#* --jq }"; else cat; fi; }
 case "$args" in
   "api repos/o/r")
-    jq -nc --arg v "${VIS:-private}" '{default_branch:"main",visibility:$v,allow_merge_commit:false,allow_squash_merge:true,allow_rebase_merge:true,delete_branch_on_merge:true,allow_auto_merge:false,has_issues:true,fork:false,license:{spdx_id:"MIT"}}' ;;
+    jq -nc --arg v "${VIS:-private}" --arg f "${FORK:-false}" '{default_branch:"main",visibility:$v,allow_merge_commit:false,allow_squash_merge:true,allow_rebase_merge:true,delete_branch_on_merge:true,allow_auto_merge:false,has_issues:true,fork:($f=="true"),license:{spdx_id:"MIT"}}' ;;
   "api repos/o/r/contents/image-updater") echo '{"message":"Not Found"}'; exit 1 ;;
   "api -X PATCH repos/o/r"*) touch "$OUT/patch"; echo '{}' ;;
   "api -X DELETE repos/o/r/branches/main/protection"*) touch "$OUT/classic_delete"; echo '' ;;
@@ -126,10 +126,20 @@ run PRS='["c1","c2","c3","c4","c5"]' bash "$BIN/apply.sh" o/r
   && ok "no check-runs: no required_status_checks rule" || bad "rules without CI: $(jq -c '[.rules[].type]' "$STUB_DIR/post.json" 2>/dev/null)"
 
 echo "apply.sh, a direct-push repo gets exactly its listed Apps as bypass"
-run DIRECT_PUSH_APPS_OVERRIDE='o/r=3693085,15368' "${SIX[@]}" bash "$BIN/apply.sh" o/r
+run DIRECT_PUSH_APPS_OVERRIDE='o/r=3693085,3592257' "${SIX[@]}" bash "$BIN/apply.sh" o/r
 [ -s "$STUB_DIR/post.json" ] && [ "$(jq -c '[.bypass_actors[] | [.actor_type, .actor_id, .bypass_mode]] | sort' "$STUB_DIR/post.json")" \
-    = '[["Integration",15368,"always"],["Integration",3693085,"always"]]' ] \
+    = '[["Integration",3592257,"always"],["Integration",3693085,"always"]]' ] \
   && ok "bypass = the two listed Apps, always" || bad "bypass $(jq -c .bypass_actors "$STUB_DIR/post.json" 2>/dev/null)"
+
+echo "apply.sh, the GitHub Actions App can't be a bypass actor on a user-owned repo"
+# Live 2026-11-11, homelab-weather: POST -> 422 "Actor GitHub Actions
+# integration must be part of the ruleset source or owner organization".
+# A GITHUB_TOKEN push can never be exempted; the bot must push as an App.
+run DIRECT_PUSH_APPS_OVERRIDE='o/r=3693085,15368' "${SIX[@]}" bash "$BIN/apply.sh" o/r
+[ "$rc" != 0 ] && [ ! -e "$STUB_DIR/post.json" ] && grep -q '15368' <<<"$out" \
+  && ok "refuses, names 15368, writes nothing" || bad "accepted 15368 as a bypass (rc=$rc)"
+grep -E '^\s*\[[^]]+\]="[^"]*\b15368\b' "$BIN/solo-ruleset.sh" \
+  && bad "DIRECT_PUSH_APPS lists 15368" || ok "DIRECT_PUSH_APPS lists no 15368"
 
 echo "apply.sh, existing main-protection is updated in place"
 EXIST='{"id":77,"name":"main-protection","enforcement":"active","bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}],"rules":[]}'
@@ -155,9 +165,15 @@ run "${SIX[@]}" bash "$BIN/apply.sh" o/r --dry-run
   && ok "no POST, no PATCH, no DELETE" || bad "dry-run wrote something"
 grep -q '"main-protection"' <<<"$out" && ok "prints the planned Ruleset" || bad "planned Ruleset not printed"
 
-echo "apply.sh, PUBLIC non-CD keeps classic (pending owner decision)"
+echo "apply.sh, PUBLIC non-CD gets the solo Ruleset too (owner decision 2026-11-11)"
 run VIS=public "${SIX[@]}" bash "$BIN/apply.sh" o/r
-[ -s "$STUB_DIR/classic_put.json" ] && [ ! -e "$STUB_DIR/post.json" ] && ok "public: classic, no Ruleset" || bad "public path changed (rc=$rc)"
+[ -s "$STUB_DIR/post.json" ] && [ ! -e "$STUB_DIR/classic_put.json" ] && ok "public: Ruleset, no classic" || bad "public still classic (rc=$rc)"
+run VIS=public CLASSIC=present "${SIX[@]}" bash "$BIN/apply.sh" o/r
+[ -e "$STUB_DIR/classic_delete" ] && [ -s "$STUB_DIR/post.json" ] && ok "public: classic stripped" || bad "public classic not stripped"
+
+echo "apply.sh, a FORK keeps classic (a no-bypass Ruleset breaks 'Sync fork')"
+run VIS=public FORK=true "${SIX[@]}" bash "$BIN/apply.sh" o/r
+[ -s "$STUB_DIR/classic_put.json" ] && [ ! -e "$STUB_DIR/post.json" ] && ok "fork: classic, no Ruleset" || bad "fork got a Ruleset (rc=$rc)"
 
 echo "audit.sh, private non-CD"
 solo() {  # bypass-json approvals
@@ -189,5 +205,12 @@ grep -qE '✗.*classic' <<<"$out" && ok "solo Ruleset + leftover classic is ✗ 
 
 run RULESETS_LIST='[]' CLASSIC=present bash "$BIN/audit.sh" o/r
 grep -qE '✗.*main-protection' <<<"$out" && ok "private repo on classic protection is ✗" || bad "classic on private not flagged"
+
+aud "$(solo '[]' 0)" VIS=public
+grep -q '✗' <<<"$out" && bad "public solo shape flagged" || ok "public: solo shape passes"
+run VIS=public RULESETS_LIST='[]' CLASSIC=present bash "$BIN/audit.sh" o/r
+grep -qE '✗.*main-protection' <<<"$out" && ok "public repo still on classic is ✗" || bad "public classic not flagged"
+run VIS=public FORK=true RULESETS_LIST='[]' CLASSIC=present bash "$BIN/audit.sh" o/r
+grep -qE '✗.*main-protection' <<<"$out" && bad "fork on classic flagged" || ok "fork on classic is not flagged"
 
 [ "$fail" -eq 0 ] && echo "PASS" || { echo "FAILED"; exit 1; }

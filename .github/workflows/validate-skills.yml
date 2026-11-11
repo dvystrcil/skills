@@ -23,6 +23,10 @@ on:
       # Scripts shipped inside a skill are exercised by tests/test_*.py; a PR
       # touching only the script must still run them.
       - "claude/**/bin/**"
+      # repo-protections/bin/*.sh are exercised by tests/test_repo_protections_*.sh
+      # and test_apply_rulesets_probe.sh; a PR touching only them (e.g. a
+      # DIRECT_PUSH_APPS entry, skills#97) ran gitleaks and nothing else.
+      - "repo-protections/**"
       - "tests/**"
       # skill-sync's CronJob command (tests/test_skill_sync_cronjob.py).
       - "sync_to_owui.yaml"

@@ -5,6 +5,7 @@
 #   apply.sh <owner/repo>                         # apply settings + branch protection
 #   apply.sh <owner/repo> --create-codeowners     # ALSO open a PR adding .github/CODEOWNERS
 #                                                 # if the repo doesn't have one
+#   apply.sh <owner/repo> --dry-run               # print the planned Ruleset, write nothing
 #
 # This script is idempotent — re-running it is safe.
 # Branch protection's `require_code_owner_reviews: true` has no teeth without a
@@ -15,21 +16,26 @@
 set -euo pipefail
 
 create_codeowners=0
+dry_run=0
 REPO=""
 
 while [ "${1:-}" != "" ]; do
   case "$1" in
     --create-codeowners) create_codeowners=1 ;;
-    --help|-h) echo "usage: $0 <owner/repo> [--create-codeowners]"; exit 0 ;;
+    --dry-run) dry_run=1 ;;
+    --help|-h) echo "usage: $0 <owner/repo> [--create-codeowners] [--dry-run]"; exit 0 ;;
     *) [ -z "$REPO" ] && REPO="$1" || { echo "unexpected arg: $1" >&2; exit 2; } ;;
   esac
   shift
 done
 
 if [ -z "$REPO" ]; then
-  echo "usage: $0 <owner/repo> [--create-codeowners]" >&2
+  echo "usage: $0 <owner/repo> [--create-codeowners] [--dry-run]" >&2
   exit 2
 fi
+
+# shellcheck source=solo-ruleset.sh
+. "$(dirname "${BASH_SOURCE[0]}")/solo-ruleset.sh"
 
 # The account has been on GitHub Pro since 2026-11-10, so protection is
 # available on private repos too. A 403 "Upgrade to GitHub Pro" is no longer
@@ -64,6 +70,9 @@ if gh api "repos/$REPO/contents/image-updater" >/dev/null 2>&1; then
 fi
 
 # --- Repo-level settings ---
+if [ "$dry_run" = "1" ]; then
+  echo "==> DRY RUN: repo settings not touched"
+else
 echo "==> Updating repo settings"
 gh api -X PATCH "repos/$REPO" \
   -F allow_merge_commit=false \
@@ -72,12 +81,17 @@ gh api -X PATCH "repos/$REPO" \
   -F allow_auto_merge=false \
   -F delete_branch_on_merge=true \
   -F has_issues=true >/dev/null
+fi
 
 # --- Branch protection on default branch ---
 # For CD repos: apply a Ruleset with IU app bypass (humans go through PRs,
 # IU pushes directly). For non-CD repos: apply classic Branch Protection.
 echo "==> Applying branch protection on '$default_branch'"
 if [ "$is_cd_repo" = "1" ]; then
+  if [ "$dry_run" = "1" ]; then
+    echo "    DRY RUN: CD repo -- would apply the IU-bypass Ruleset (see the CD path); nothing written"
+    exit 0
+  fi
   # Conversion case: if this repo previously ran through apply.sh as a
   # non-CD repo (before the image-updater/ directory existed), classic
   # Branch Protection is still in place. Classic and Ruleset enforce in
@@ -213,6 +227,58 @@ else
   pro_lapsed_hint >&2
   exit 1
 fi
+
+# --- Private non-CD: the solo Ruleset (see solo-ruleset.sh) ---
+# Public repos stay on classic protection until the owner decides otherwise.
+if [ "$visibility" = "private" ]; then
+  solo_id=$(echo "$rulesets_json" | jq -r --arg n "$SOLO_RULESET_NAME" '[.[] | select(.name==$n) | .id][0] // empty')
+  others=$(echo "$rulesets_json" \
+    | jq -r --arg n "$SOLO_RULESET_NAME" '[.[] | select(.enforcement=="active" and .name!=$n) | .name] | join(", ")')
+  if [ -z "$solo_id" ] && [ -n "$others" ]; then
+    # A hand-made Ruleset exists for a reason -- usually a bypass for a bot
+    # that pushes to main. Don't stack a second, bypass-less one on top: an
+    # actor bypassing Ruleset A is still blocked by Ruleset B.
+    echo "    SKIPPED -- already protected by Ruleset(s): $others (hand-made)"
+    echo "    (fold it into '$SOLO_RULESET_NAME' by hand, keeping its bypass actors in DIRECT_PUSH_APPS)"
+    echo
+    echo "Done. Run audit.sh $REPO to confirm."
+    exit 0
+  fi
+  checks=$(derive_required_checks "$REPO") \
+    || { echo "    FAILED to read merged PRs' check-runs -- refusing to guess required checks" >&2; exit 1; }
+  apps=$(direct_push_apps "$REPO")
+  payload=$(solo_ruleset_payload "$apps" "$checks")
+  echo "    solo Ruleset '$SOLO_RULESET_NAME': required checks $checks, bypass Apps $apps"
+  if [ "$dry_run" = "1" ]; then
+    echo "$payload" | jq .
+    echo "    DRY RUN: nothing written"
+    exit 0
+  fi
+  # Classic protection enforces in parallel with the Ruleset and has no
+  # bypass list (a listed App would still be rejected with GH006), and its
+  # enforce_admins:false is the hole this Ruleset closes. Strip it.
+  if gh api "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1; then
+    echo "    STRIPPING classic Branch Protection (replaced by the Ruleset)"
+    gh api -X DELETE "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1 \
+      || { echo "    FAILED to delete classic protection" >&2; exit 1; }
+  fi
+  if [ -n "$solo_id" ]; then
+    method=PUT; path="repos/$REPO/rulesets/$solo_id"; verb=updated
+  else
+    method=POST; path="repos/$REPO/rulesets"; verb=created
+  fi
+  if echo "$payload" | gh api -X "$method" -H "Accept: application/vnd.github+json" "$path" --input - >/dev/null 2>&1; then
+    echo "    Ruleset $verb"
+  else
+    echo "    FAILED ($method $path):" >&2
+    echo "$payload" | gh api -X "$method" -H "Accept: application/vnd.github+json" "$path" --input - >&2 || true
+    exit 1
+  fi
+  echo
+  echo "Done. Run audit.sh $REPO to confirm."
+  exit 0
+fi
+
 if [ -n "$existing_ruleset" ]; then
   echo "    SKIPPED classic protection — already protected by Ruleset(s): $existing_ruleset"
   echo "    (classic would enforce in parallel with no bypass list and break any bypassed actor)"

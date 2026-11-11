@@ -12,6 +12,9 @@ set -euo pipefail
 
 OWNER="${OWNER:-dvystrcil}"
 
+# shellcheck source=solo-ruleset.sh
+. "$(dirname "${BASH_SOURCE[0]}")/solo-ruleset.sh"
+
 fail=0
 
 check() {
@@ -74,6 +77,50 @@ codeowners_required() {
     fi
   done
   echo 0
+}
+
+# audit_solo <owner/repo> <classic-protection-json-or-empty>: private non-CD
+# repos carry the solo Ruleset (solo-ruleset.sh). A hand-made Ruleset under
+# another name (a bot bypass predating the solo shape) is accepted as before.
+audit_solo() {
+  local repo="$1" prot="$2" rulesets_json solo_id others ruleset
+  if ! rulesets_json=$(gh api "repos/$repo/rulesets" 2>/dev/null) \
+     || ! echo "$rulesets_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    check "Ruleset $SOLO_RULESET_NAME — fetch error" "error" "ok"
+    return
+  fi
+  solo_id=$(echo "$rulesets_json" | jq -r --arg n "$SOLO_RULESET_NAME" '[.[] | select(.name==$n) | .id][0] // empty')
+  others=$(echo "$rulesets_json" | jq -r --arg n "$SOLO_RULESET_NAME" \
+    '[.[] | select(.enforcement=="active" and .name!=$n) | .name] | join(", ")')
+  if [ -z "$solo_id" ] && [ -n "$others" ]; then
+    printf "  \033[33m·\033[0m %-32s hand-made Ruleset: %s\n" "branch protection" "$others"
+    local rid
+    for rid in $(echo "$rulesets_json" | jq -r '.[] | select(.enforcement=="active") | .id'); do
+      check "Ruleset $rid CICD bypass" \
+        "$(cicd_bypass_verdict "$(gh api "repos/$repo/rulesets/$rid" 2>/dev/null || echo '{}')" 0 "$repo")" "ok"
+    done
+    return
+  fi
+  if [ -z "$solo_id" ]; then
+    check "Ruleset $SOLO_RULESET_NAME" "absent" "present"
+    return
+  fi
+  ruleset=$(gh api "repos/$repo/rulesets/$solo_id" 2>/dev/null || echo '{}')
+  check "Ruleset enforcement" "$(echo "$ruleset" | jq -r '.enforcement')" "active"
+  check "Ruleset required approvals" \
+    "$(echo "$ruleset" | jq -r '[.rules[]? | select(.type=="pull_request") | .parameters.required_approving_review_count][0] // "none"')" "0"
+  # No role/admin bypass at all; App bypasses exactly the DIRECT_PUSH_APPS
+  # list -- an extra one is a hole, a missing one breaks that bot's pushes.
+  check "Ruleset admin/role bypass" \
+    "$(echo "$ruleset" | jq -r '[.bypass_actors[]? | select(.actor_type!="Integration")] | if length>0 then "present" else "absent" end')" "absent"
+  check "Ruleset bypass Apps" \
+    "$(echo "$ruleset" | jq -c '[.bypass_actors[]? | select(.actor_type=="Integration") | .actor_id] | sort')" \
+    "$(direct_push_apps "$repo")"
+  if [ -n "$prot" ] && ! echo "$prot" | grep -q '"message"'; then
+    check "no classic protection" "present" "absent"
+  fi
+  printf "  \033[33m·\033[0m %-32s %s\n" "required checks" \
+    "$(echo "$ruleset" | jq -c '[.rules[]? | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]')"
 }
 
 audit_one() {
@@ -279,6 +326,8 @@ audit_one() {
       check "Ruleset admin bypass"       "$admin_bypass" "absent"
       check "Ruleset CICD bypass"        "$cicd_bypass"  "absent"
     fi
+  elif [ "$vis" = "private" ]; then
+    audit_solo "$repo" "$prot"
   elif [ -z "$prot" ] || echo "$prot" | grep -q '"message"'; then
     # No classic protection — but a Ruleset is equally valid protection,
     # and for any repo written to by automation it is the ONLY valid one,

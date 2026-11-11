@@ -50,6 +50,8 @@ case "$args" in
       empty)  [[ "$args" == *--jq* ]] && echo '' || echo '[]' ;;
       *) echo "stub: bad RULESETS" >&2; exit 99 ;;
     esac ;;
+  "api repos/o/r/pulls?"*) echo '' ;;   # no merged PRs -> no required checks
+  *"-X POST"*"repos/o/r/rulesets"*) cat >/dev/null; [ "${RULESET_POST:-ok}" = pro403 ] && pro403; echo '{"id":99}' ;;
   *"-X PUT"*"repos/o/r/branches/main/protection"*)
     cat >/dev/null
     [ "${CLASSIC_PUT:-ok}" = pro403 ] && pro403
@@ -75,21 +77,23 @@ run CD=1 RULESETS=pro403 bash "$BIN/apply.sh" o/r
 [ "$rc" != 0 ] && ok "CD private + 403: exits non-zero" || bad "CD private + 403 exited 0"
 grep -q 'SKIPPED' <<<"$out" && bad "CD private + 403 still says SKIPPED" || ok "CD private + 403: not SKIPPED"
 
-run CD=0 RULESETS=empty CLASSIC_PUT=pro403 bash "$BIN/apply.sh" o/r
-[ "$rc" != 0 ] && ok "private classic PUT 403: exits non-zero" || bad "private classic PUT 403 exited 0"
+run CD=0 RULESETS=empty RULESET_POST=pro403 bash "$BIN/apply.sh" o/r
+[ "$rc" != 0 ] && ok "private Ruleset POST 403: exits non-zero" || bad "private Ruleset POST 403 exited 0"
 
+# Private non-CD repos get the solo Ruleset, not classic protection
+# (test_repo_protections_solo_plain.sh covers its shape).
 run CD=0 RULESETS=empty CLASSIC_PUT=ok bash "$BIN/apply.sh" o/r
-[ "$rc" = 0 ] && grep -q 'protection applied' <<<"$out" \
-  && ok "private, Pro works: classic protection applied (regression guard)" \
+[ "$rc" = 0 ] && grep -q 'Ruleset created' <<<"$out" \
+  && ok "private, Pro works: solo Ruleset created (regression guard)" \
   || bad "private happy path broke"
 
 echo "audit.sh"
 run CD=0 RULESETS=pro403 bash "$BIN/audit.sh" o/r
 grep -q 'n/a (private' <<<"$out" && bad "non-CD private + 403 audited as n/a" || ok "non-CD private + 403: not n/a"
-grep -q '✗.*branch protection' <<<"$out" && ok "non-CD private + 403: branch protection is ✗" || bad "non-CD private + 403 not flagged"
+grep -qE '✗.*(branch protection|Ruleset main-protection)' <<<"$out" && ok "non-CD private + 403: protection is ✗" || bad "non-CD private + 403 not flagged"
 
 run CD=0 RULESETS=empty bash "$BIN/audit.sh" o/r
-grep -q '✗.*branch protection' <<<"$out" && ok "private, unprotected: branch protection is ✗" || bad "private unprotected repo not flagged"
+grep -qE '✗.*(branch protection|Ruleset main-protection)' <<<"$out" && ok "private, unprotected: protection is ✗" || bad "private unprotected repo not flagged"
 
 run CD=1 RULESETS=pro403 bash "$BIN/audit.sh" o/r
 [ "$rc" != 0 ] && ok "CD private + 403: audit exits non-zero" || bad "CD private + 403 audit exited 0"

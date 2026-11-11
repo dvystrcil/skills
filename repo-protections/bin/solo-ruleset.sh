@@ -23,6 +23,8 @@ SOLO_CHECKS_MIN_PRS="${SOLO_CHECKS_MIN_PRS:-5}"  # fewer -> no required checks
 # Every id here was read from an authoritative source (the App's credential or
 # a rule-suite log), never copied from "a bypass that works elsewhere":
 #   3693085 dvystrcil-ci-cd (CICD App)  skills rule-suites: dvystrcil-ci-cd[bot] => bypass via 16666429
+#   5715971 dvystrcil-homelab-weather   owner, from the App's settings page (2026-11-11);
+#           client Iv23liIw1wD3KJsoUUwr; installed on homelab-weather only, Contents r/w
 #
 # NEVER the GitHub Actions App (15368). On a user-owned repo GitHub rejects it:
 #   422 "Actor GitHub Actions integration must be part of the ruleset source
@@ -30,10 +32,11 @@ SOLO_CHECKS_MIN_PRS="${SOLO_CHECKS_MIN_PRS:-5}"  # fewer -> no required checks
 # so a workflow pushing with GITHUB_TOKEN can't be exempted at all. It has to
 # push as one of the owner's Apps instead. apply.sh refuses 15368 up front.
 declare -A DIRECT_PUSH_APPS=(
-  # collector commits samples via the Contents API (~hourly, CICD App).
-  # derive.yml still pushes with GITHUB_TOKEN, so homelab-weather is NOT
-  # rolled out until it pushes as an App (owner decision pending).
-  [dvystrcil/homelab-weather]="3693085"
+  # The in-cluster collector commits samples/ via the Contents API (every
+  # 15 min, CICD App). The off-cluster deriver (derive.yml, ubuntu-latest)
+  # pushes derived/ every 3 h as its own App -- homelab-weather#13; its key is
+  # a repo Actions secret so it keeps working with the cluster down.
+  [dvystrcil/homelab-weather]="3693085 5715971"
 )
 # Tests: DIRECT_PUSH_APPS_OVERRIDE='owner/repo=id,id'
 if [ -n "${DIRECT_PUSH_APPS_OVERRIDE:-}" ]; then

@@ -591,7 +591,7 @@ data:
     | `delete_branch_on_merge` | true |
     | `has_issues` | true |
     
-    ### Branch protection on `main` (PUBLIC non-CD repos)
+    ### Branch protection on `main` (FORKS only)
     | Rule | Value |
     |---|---|
     | `required_approving_review_count` | 1 |
@@ -609,8 +609,9 @@ data:
     > `enforce_admins: false` exempts admins — and every agent using the owner's
     > credential — from all rules, direct pushes included.
     
-    ### Private non-CD repos use the solo Ruleset
-    `apply.sh` gives every **private** non-CD repo a Ruleset named
+    ### Non-CD repos (private and public, not forks) use the solo Ruleset
+    Forks keep classic protection: a no-bypass Ruleset blocks "Sync fork".
+    `apply.sh` gives every other non-CD repo a Ruleset named
     `main-protection` (the `homelab` pattern): PR required, 0 approvals, squash +
     rebase, no deletion/force-push, **no bypass actors**, and required checks =
     the GitHub Actions checks present on **every** one of the last 30 merged PRs
@@ -619,7 +620,9 @@ data:
     
     A bot that pushes straight to `main` (a collector, an autosync) would be
     rejected with `GH013`: its App id goes in `DIRECT_PUSH_APPS` in
-    `bin/solo-ruleset.sh` and becomes the repo's only bypass. `audit.sh` checks
+    `bin/solo-ruleset.sh` and becomes the repo's only bypass. Never the GitHub
+    Actions App (15368): GitHub rejects it as a bypass on a user-owned repo, so a
+    workflow pushing with `GITHUB_TOKEN` must push as an App instead. `audit.sh` checks
     the Ruleset is active, 0 approvals, no admin bypass, bypass Apps exactly as
     listed, no classic protection. Hand-made Rulesets under another name are left
     alone.

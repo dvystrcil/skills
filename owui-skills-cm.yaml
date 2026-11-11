@@ -591,7 +591,7 @@ data:
     | `delete_branch_on_merge` | true |
     | `has_issues` | true |
     
-    ### Branch protection on `main`
+    ### Branch protection on `main` (PUBLIC non-CD repos)
     | Rule | Value |
     |---|---|
     | `required_approving_review_count` | 1 |
@@ -607,9 +607,22 @@ data:
     > `audit.sh --all` covers private repos too.
     >
     > `enforce_admins: false` exempts admins — and every agent using the owner's
-    > credential — from all rules, direct pushes included. Where that matters,
-    > use the solo Ruleset (no bypass, 0 approvals, required checks that run on
-    > every PR) described in the Claude flavor; `homelab` uses it.
+    > credential — from all rules, direct pushes included.
+    
+    ### Private non-CD repos use the solo Ruleset
+    `apply.sh` gives every **private** non-CD repo a Ruleset named
+    `main-protection` (the `homelab` pattern): PR required, 0 approvals, squash +
+    rebase, no deletion/force-push, **no bypass actors**, and required checks =
+    the GitHub Actions checks present on **every** one of the last 30 merged PRs
+    (none if fewer than 5 merged PRs or no CI). It strips any classic protection.
+    `--dry-run` prints the plan and writes nothing.
+    
+    A bot that pushes straight to `main` (a collector, an autosync) would be
+    rejected with `GH013`: its App id goes in `DIRECT_PUSH_APPS` in
+    `bin/solo-ruleset.sh` and becomes the repo's only bypass. `audit.sh` checks
+    the Ruleset is active, 0 approvals, no admin bypass, bypass Apps exactly as
+    listed, no classic protection. Hand-made Rulesets under another name are left
+    alone.
     
     ### CD repos use Rulesets with IU bypass
     

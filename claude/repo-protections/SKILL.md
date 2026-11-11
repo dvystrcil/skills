@@ -1,6 +1,6 @@
 ---
 name: repo-protections
-description: Standard repository hygiene for new GitHub repos — MIT license, branch protection on main, squash/rebase only, CODEOWNERS file. Run after `gh repo create` and any time a public repo lacks these.
+description: Standard repository hygiene for new GitHub repos — MIT license, branch protection on main, squash/rebase only, CODEOWNERS file. Run after `gh repo create` and any time a repo (public or private) lacks these.
 ---
 
 # Repo Protections
@@ -112,8 +112,46 @@ a service) don't need this.
 | `allow_deletions` | false | No accidental branch deletion |
 | `enforce_admins` | false | Admin can still merge in emergencies |
 
-> Private repos without GitHub Pro **can't** apply branch protection. The
-> apply script will detect this and skip the protection step gracefully.
+> **Private repos are in scope.** The account has been on **GitHub Pro since
+> 2026-11-10**, which unlocks branch protection and Rulesets on private
+> repos. Before that, every private repo returned `403 Upgrade to GitHub Pro`
+> and `apply.sh`/`audit.sh` reported it as "n/a" with exit 0 — so all 70
+> private repos, `homelab` (a live ArgoCD source) included, passed the audit
+> while being unprotected, and `audit.sh --all` never looked at them. Both
+> scripts now treat that 403 as a **failure**: it means the Pro plan lapsed.
+>
+> **`enforce_admins: false` is weaker than it looks on a solo account.** It
+> exempts admins from *every* rule, direct pushes to `main` included — and
+> every agent session acts with the owner's admin credential. So classic
+> protection here stops nobody who is likely to push. Where that matters, use
+> the solo Ruleset below instead.
+
+### Solo Ruleset (no bypass) — the `homelab` pattern
+
+For a repo where "never push to `main`" has to actually hold for agents, not
+just be written down: a Ruleset named `main-protection` on `~DEFAULT_BRANCH`
+with **no bypass actors at all** and **0 required approvals** (a solo owner
+can't approve their own PR, so 1 approval with no bypass would block every
+merge, and 1 approval *with* an admin bypass makes every merge a bypass).
+
+| Rule | Value |
+|---|---|
+| `deletion`, `non_fast_forward` | on |
+| `pull_request` | 0 approvals, merge methods squash + rebase |
+| `required_status_checks` | only checks that run on **every** PR (no path filter); `integration_id: 15368` (GitHub Actions) |
+| `bypass_actors` | `[]` |
+
+Pick the required checks from history, not from the workflow list: list the
+check runs on the last ~30 merged PRs and require only the names present on
+all of them. A path-filtered check that's required blocks every PR it doesn't
+run on. Emergencies: switch the Ruleset's enforcement off in Settings (it's
+logged), don't add a bypass.
+
+Applied to `dvystrcil/homelab` 2026-11-10 (Ruleset id 27005532; required
+checks `gitleaks` + `canaries`). `apply.sh` does not create this Ruleset yet —
+it's applied by hand with `gh api -X POST repos/<repo>/rulesets`. Not for CD
+repos: anything that pushes straight to `main` (image-updater, a canary, a
+codegen job) needs the bypass-actor Ruleset in the next section.
 
 ### CD repos (image-updater writeback targets) use Rulesets with IU bypass
 
@@ -189,7 +227,7 @@ for you if you don't have them handy.
 "$SKILLS_REPO/repo-protections/bin/audit.sh" --all   # $SKILLS_REPO resolved as in the Quick path above
 ```
 
-Lists every public repo with PASS/FAIL per dimension.
+Lists every non-archived repo — public **and private** — with PASS/FAIL per dimension.
 
 ## When the AI should invoke this skill
 

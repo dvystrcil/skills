@@ -59,8 +59,15 @@ public repo is found lacking them. **Not optional once a repo is public.**
 | `allow_deletions` | false |
 | `enforce_admins` | false |
 
-> Private repos without GitHub Pro cannot apply branch protection — the
-> apply script detects this and skips that step.
+> Private repos are in scope: the account is on **GitHub Pro since
+> 2026-11-10**. A `403 Upgrade to GitHub Pro` used to be reported as "n/a";
+> `apply.sh` and `audit.sh` now fail on it (it means Pro lapsed), and
+> `audit.sh --all` covers private repos too.
+>
+> `enforce_admins: false` exempts admins — and every agent using the owner's
+> credential — from all rules, direct pushes included. Where that matters,
+> use the solo Ruleset (no bypass, 0 approvals, required checks that run on
+> every PR) described in the Claude flavor; `homelab` uses it.
 
 ### CD repos use Rulesets with IU bypass
 
@@ -77,7 +84,7 @@ Convention established 2026-05-26 (homelab#238). Conversion handling added 2026-
 Canonical scripts live in `~/Code/skills/repo-protections/bin/`:
 
 ```bash
-# Check drift for one repo or every public repo:
+# Check drift for one repo or every non-archived repo (public + private):
 ~/Code/skills/repo-protections/bin/audit.sh dvystrcil/<repo>
 ~/Code/skills/repo-protections/bin/audit.sh --all
 

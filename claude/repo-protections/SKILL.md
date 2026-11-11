@@ -151,13 +151,14 @@ Applied to `dvystrcil/homelab` 2026-11-10 (Ruleset id 27005532; required
 checks `gitleaks` + `canaries`). `apply.sh` does not create this Ruleset yet —
 it's applied by hand with `gh api -X POST repos/<repo>/rulesets`. Not for CD
 repos: anything that pushes straight to `main` (image-updater, a canary, a
-codegen job) needs the bypass-actor Ruleset in the next section.
+codegen job) needs that actor as a bypass — the CD Ruleset in the next
+section is this same solo shape plus exactly one bypass actor, the IU App.
 
 ### CD repos (image-updater writeback targets) use Rulesets with IU bypass
 
 Repos that argocd-image-updater pushes to directly (`writeBackConfig.gitConfig.repository`) CAN have branch protection — but it must be a **GitHub Ruleset** with the IU GitHub App in the `bypass_actors` list, not classic Branch Protection. Classic Branch Protection rejects the IU's `git push origin main` with `GH006`. Rulesets support per-actor bypass, so:
 
-- **Humans** still go through PRs (PR review, CODEOWNERS gate, no force-push, no deletion)
+- **Humans and agents** still go through PRs (no direct push, no force-push, no deletion)
 - **IU controller** pushes directly to main via its GitHub App authentication
 
 `apply.sh` and `audit.sh` both detect CD repos by looking for an `image-updater/` directory at the repo root. When present:
@@ -165,12 +166,14 @@ Repos that argocd-image-updater pushes to directly (`writeBackConfig.gitConfig.r
 - `apply.sh` creates (or updates) a Ruleset named `main-protection-with-iu-bypass` with rules:
   - `deletion` (no branch delete)
   - `non_fast_forward` (no force-push)
-  - `pull_request` (1 review, dismiss stale, require code-owner review)
+  - `pull_request` (**0 approvals**, merge through a PR)
 
-  …and three bypass actors: the homelab IU GitHub App (default `app_id=378815`; override with `IU_APP_ID`), **Repository admin (RepositoryRole id 5)**, and **the CICD App in `pull_request` mode** (default `3693085`; override with `CICD_APP_ID`). The CICD bypass is how homelab's auto-merge gate lands bot PRs with `gh pr merge --admin` (homelab D-037, [homelab#1225](https://github.com/dvystrcil/homelab/issues/1225)). `pull_request` mode lets it merge past review but never force-push or delete. It has to be in the payload, because the update is a PUT that replaces the whole bypass list. The admin bypass is load-bearing for a solo operator: GitHub forbids self-approving your own PR, so without it the owner can never merge their own PRs into a CD repo (the review requirement is unsatisfiable). `audit.sh` checks for all three.
+  …and **exactly one bypass actor: the homelab IU GitHub App** (default `app_id=378815`; override with `IU_APP_ID`). It replaces an existing Ruleset that already lists the IU App under another name (e.g. a hand-made `main`) in place rather than adding a second one.
+
+  **Why this shape (owner decision 2026-11-10, after GitHub Pro).** The previous CD Ruleset required 1 approval and listed **Repository admin (`always`)** and **the CICD App (`pull_request`)** as bypass actors. A solo owner can't approve their own PR, so every merge went through the admin bypass — and `always` also let the owner's credential, which every agent session uses, push straight to `main`. With 0 approvals neither bypass has a job: the owner merges normally, and homelab's auto-merge gate succeeds on its first, plain `gh pr merge` (D-037 only reaches for `--admin` after a plain merge is refused as a policy block). This is the same solo shape as homelab's `main-protection`, plus the one actor that genuinely has to push directly.
 
   **Conversion case:** if a non-CD repo later becomes a CD repo (i.e. the deploy scaffold PR adds `image-updater/` after `apply.sh` had already installed classic Branch Protection), the next `apply.sh` run also strips the stale classic protection. Without that, classic and Ruleset enforce in parallel — classic has no per-actor bypass list, so IU's push fails with `GH006` even though the Ruleset bypass is correct. Burned 2026-05-29 on `dvystrcil/tor-character-mcp` and `dvystrcil/tor-dice`.
-- `audit.sh` checks that the canonical Ruleset exists, is `active`, has the IU app (matched by id) and the CICD App (`pull_request` mode) in the bypass list, **and that classic Branch Protection is absent**. On any repo, a CICD bypass wider than `pull_request` (`always`/`exempt`) fails, unless the repo is in `CICD_DIRECT_PUSH_REPOS` with its reason (today only `skills`, whose `rebuild-configmap.yml` pushes to `main`) (would conflict with the Ruleset bypass). CODEOWNERS is still required (the Ruleset's `require_code_owner_review` depends on it).
+- `audit.sh` finds the CD Ruleset (canonical name, or any Ruleset listing the IU App) and checks it is `active`, has the IU App (matched by id), requires **0** approvals, and has **no** admin and **no** CICD bypass — **and that classic Branch Protection is absent**. On non-CD repos a CICD bypass stays opt-in but never wider than `pull_request` (`always`/`exempt` fails), unless the repo is in `CICD_DIRECT_PUSH_REPOS` with its reason (today only `skills`, whose `rebuild-configmap.yml` pushes to `main`).
 
 This convention was established 2026-05-26 (homelab#238) after the initial "skip protection on CD repos" approach turned out to be unnecessarily permissive. Rulesets give us the protection AND IU's direct-push.
 

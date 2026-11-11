@@ -11,9 +11,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$HERE/../repo-protections/bin"
 STUB_DIR="$(mktemp -d)"
 trap 'rm -rf "$STUB_DIR"' EXIT
-fail=0
+tfail=0
 ok()  { echo "  ok   $1"; }
-bad() { echo "  FAIL $1"; fail=1; }
+bad() { echo "  FAIL $1"; tfail=1; }
 
 # --- apply.sh, CD repo, no Ruleset yet: the POSTed payload --------------------
 cat > "$STUB_DIR/gh" <<'STUB'
@@ -33,27 +33,29 @@ STUB
 chmod +x "$STUB_DIR/gh"
 
 echo "apply.sh (CD repo)"
+# Since the solo CD Ruleset (owner decision 2026-11-10) the CICD App and the
+# admin role are deliberately NOT bypass actors on CD repos -- 0 approvals
+# leaves them nothing to bypass. Full shape: tests/test_repo_protections_cd_solo.sh.
 PAYLOAD_OUT="$STUB_DIR/payload.json" PATH="$STUB_DIR:$PATH" bash "$BIN/apply.sh" o/r >/dev/null 2>&1 \
   || bad "apply.sh exited non-zero"
 p="$STUB_DIR/payload.json"
 if [ -s "$p" ]; then
-  [ "$(jq -r '[.bypass_actors[] | select(.actor_type=="Integration" and .actor_id==3693085) | .bypass_mode] | join(",")' "$p")" = "pull_request" ] \
-    && ok "CICD App 3693085 is a bypass actor in pull_request mode" \
-    || bad "CICD App bypass missing or not pull_request: $(jq -c .bypass_actors "$p")"
+  [ "$(jq -r '[.bypass_actors[] | select(.actor_type=="Integration" and .actor_id==3693085)] | length' "$p")" = 0 ] \
+    && ok "CICD App is not a CD bypass actor" || bad "CICD App still a CD bypass actor: $(jq -c .bypass_actors "$p")"
   [ "$(jq -r '[.bypass_actors[] | select(.actor_type=="Integration" and .actor_id==378815)] | length' "$p")" = 1 ] \
     && ok "IU App still a bypass actor" || bad "IU App bypass lost"
-  [ "$(jq -r '[.bypass_actors[] | select(.actor_type=="RepositoryRole" and .actor_id==5)] | length' "$p")" = 1 ] \
-    && ok "admin role still a bypass actor" || bad "admin bypass lost"
+  [ "$(jq -r '[.bypass_actors[] | select(.actor_type=="RepositoryRole")] | length' "$p")" = 0 ] \
+    && ok "admin role is not a bypass actor" || bad "admin bypass still present"
 else
   bad "no Ruleset payload was POSTed"
 fi
-PAYLOAD_OUT="$STUB_DIR/payload2.json" CICD_APP_ID=42 PATH="$STUB_DIR:$PATH" bash "$BIN/apply.sh" o/r >/dev/null 2>&1 || true
-[ "$(jq -r '[.bypass_actors[] | select(.actor_id==42) | .bypass_mode] | join(",")' "$STUB_DIR/payload2.json" 2>/dev/null)" = "pull_request" ] \
-  && ok "CICD_APP_ID overrides the default" || bad "CICD_APP_ID override ignored"
 
 # --- audit.sh bypass checks (sourced; nothing runs on source) ---------------
 echo "audit.sh"
 # shellcheck source=/dev/null
+# NB: audit.sh sets its own `fail=0` at top level, which is why this test
+# counts in $tfail -- with `fail` the apply.sh section's failures above were
+# silently reset to 0 here and the test passed red.
 source "$BIN/audit.sh"
 rs() { jq -nc --argjson a "$1" '{enforcement:"active", bypass_actors:$a}'; }
 IU='{"actor_id":378815,"actor_type":"Integration","bypass_mode":"always"}'
@@ -83,4 +85,4 @@ v() { cicd_bypass_verdict "$(rs "$1")" "$2"; }
 [ "$(iu_bypass_id "$(rs "[$CICD_PR,$IU,$ADM]")")" = 378815 ] \
   && ok "IU check finds the IU App by id" || bad "IU check missed the IU App"
 
-[ "$fail" -eq 0 ] && echo "PASS" || { echo "FAILED"; exit 1; }
+[ "$tfail" -eq 0 ] && echo "PASS" || { echo "FAILED"; exit 1; }

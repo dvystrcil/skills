@@ -210,34 +210,40 @@ audit_one() {
     else
       printf "  \033[32m✓\033[0m %-32s %s\n" "no classic protection (CD)" "absent"
     fi
-    # Check for canonical Ruleset on CD repos
-    local ruleset_id
+    # The CD Ruleset: canonical name, or else any Ruleset listing the IU App
+    # as a bypass actor (a hand-made one may be called "main").
+    local ruleset_id rid
     ruleset_id=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name=="main-protection-with-iu-bypass") | .id' 2>/dev/null || echo "")
+    if [ -z "$ruleset_id" ]; then
+      for rid in $(gh api "repos/$repo/rulesets" --jq '.[].id' 2>/dev/null); do
+        if [ -n "$(iu_bypass_id "$(gh api "repos/$repo/rulesets/$rid" 2>/dev/null || echo '{}')")" ]; then
+          ruleset_id="$rid"; break
+        fi
+      done
+    fi
     if [ -z "$ruleset_id" ]; then
       check "Ruleset (IU bypass)" "absent" "present"
     else
-      # Verify the bypass actor includes the IU app
-      local ruleset
+      # The solo CD shape (owner decision 2026-11-10, see apply.sh): the IU
+      # App is the ONLY bypass actor, 0 approvals. An admin bypass lets the
+      # owner's credential (every agent session) push straight to main; a
+      # CICD bypass has nothing left to bypass at 0 approvals.
+      local ruleset enforcement bypass approvals admin_bypass cicd_bypass
       ruleset=$(gh api "repos/$repo/rulesets/$ruleset_id" 2>/dev/null)
-      local enforcement bypass
       enforcement=$(echo "$ruleset" | jq -r '.enforcement')
       bypass=$(iu_bypass_id "$ruleset")
-      local admin_bypass
-      admin_bypass=$(echo "$ruleset" | jq -r '.bypass_actors[] | select(.actor_type=="RepositoryRole" and .actor_id==5) | .actor_id' | head -1)
+      approvals=$(echo "$ruleset" | jq -r '[.rules[]? | select(.type=="pull_request") | .parameters.required_approving_review_count][0] // "none"')
+      admin_bypass=$(echo "$ruleset" | jq -r '[.bypass_actors[]? | select(.actor_type=="RepositoryRole" or .actor_type=="OrganizationAdmin")] | if length>0 then "present" else "absent" end')
+      cicd_bypass=$(echo "$ruleset" | jq -r --argjson c "$CICD_APP_ID" '[.bypass_actors[]? | select(.actor_type=="Integration" and .actor_id==$c)] | if length>0 then "present" else "absent" end')
       check "Ruleset enforcement"   "$enforcement" "active"
       if [ -n "$bypass" ]; then
         printf "  \033[32m✓\033[0m %-32s app id=%s\n" "Ruleset IU bypass" "$bypass"
       else
         check "Ruleset IU bypass" "missing" "present"
       fi
-      check "Ruleset CICD merge bypass" "$(cicd_bypass_verdict "$ruleset" 1 "$repo")" "ok"
-      # Solo operator can't merge own PRs without an admin bypass (the
-      # review requirement is otherwise unsatisfiable). See apply.sh.
-      if [ -n "$admin_bypass" ]; then
-        printf "  \033[32m✓\033[0m %-32s role id=5\n" "Ruleset admin bypass"
-      else
-        check "Ruleset admin bypass" "missing" "present"
-      fi
+      check "Ruleset required approvals" "$approvals"    "0"
+      check "Ruleset admin bypass"       "$admin_bypass" "absent"
+      check "Ruleset CICD bypass"        "$cicd_bypass"  "absent"
     fi
   elif [ -z "$prot" ] || echo "$prot" | grep -q '"message"'; then
     # No classic protection — but a Ruleset is equally valid protection,

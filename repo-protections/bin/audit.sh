@@ -79,6 +79,26 @@ codeowners_required() {
   echo 0
 }
 
+# writers_verdict <owner/repo>: "owner only", or the other logins that can
+# merge -- collaborators with push, plus pending invites for write and above
+# (one click from being a writer). "error" if either API call fails: an audit
+# that reads a failed call as "nobody else" fails OPEN.
+#
+# Owner decision 2026-11-11: every Ruleset here requires 0 approvals, so ANY
+# writer can merge their own PR -- on homelab or argocd-projects, straight to
+# production. Removing the collaborators closed that; this keeps it closed.
+writers_verdict() {
+  local repo="$1" owner="${1%%/*}" c i
+  c=$(gh api "repos/$repo/collaborators?per_page=100" \
+        --jq "[.[] | select(.login != \"$owner\" and .permissions.push) | .login]" 2>/dev/null) \
+    || { echo "error"; return; }
+  i=$(gh api "repos/$repo/invitations?per_page=100" \
+        --jq '[.[] | select(.permissions != "read" and .permissions != "triage") | .invitee.login + " (invited)"]' 2>/dev/null) \
+    || { echo "error"; return; }
+  jq -nr --argjson c "$c" --argjson i "$i" \
+    '($c + $i) | if length == 0 then "owner only" else join(", ") end' 2>/dev/null || echo "error"
+}
+
 # audit_solo <owner/repo> <classic-protection-json-or-empty>: private non-CD
 # repos carry the solo Ruleset (solo-ruleset.sh). A hand-made Ruleset under
 # another name (a bot bypass predating the solo shape) is accepted as before.
@@ -216,6 +236,7 @@ audit_one() {
   check "delete_branch_on_merge"     "$del"     "true"
   check "allow_auto_merge"           "$autom"   "false"
   check "has_issues"                 "$issues"  "true"
+  check "writers"                    "$(writers_verdict "$repo")" "owner only"
 
   # LICENSE: detect via license API (handles LICENSE / LICENSE.md / LICENSE.txt).
   if [ "$machine_managed" = "1" ]; then

@@ -63,6 +63,14 @@ case "$args" in
   "api repos/o/r/rulesets/77") echo "$RULESET_77" ;;
   *"-X POST"*"repos/o/r/rulesets"*)   cat > "$OUT/post.json"; echo '{"id":99}' ;;
   *"-X PUT"*"repos/o/r/rulesets/77"*) cat > "$OUT/put.json";  echo '{"id":77}' ;;
+  "api repos/o/r/collaborators?per_page=100"*)
+    [ -n "${COLLABS_ERR:-}" ] && { echo '{"message":"Server Error","status":"500"}'; exit 1; }
+    # Not ${COLLABS:-<json>}: the JSON's first `}` would end the expansion.
+    owner_only='[{"login":"o","permissions":{"push":true,"admin":true}}]'
+    echo "${COLLABS:-$owner_only}" | jqf ;;
+  "api repos/o/r/invitations?per_page=100"*)
+    [ -n "${INVITES_ERR:-}" ] && { echo '{"message":"Server Error","status":"500"}'; exit 1; }
+    echo "${INVITES:-[]}" | jqf ;;
   "api repos/o/r/license"*) echo '{}' ;;
   # The solo Ruleset requires no code-owner review, so no CODEOWNERS (skills#93).
   "api repos/o/r/contents/.github/CODEOWNERS"*) echo '{"message":"Not Found"}'; exit 1 ;;
@@ -212,5 +220,22 @@ run VIS=public RULESETS_LIST='[]' CLASSIC=present bash "$BIN/audit.sh" o/r
 grep -qE '✗.*main-protection' <<<"$out" && ok "public repo still on classic is ✗" || bad "public classic not flagged"
 run VIS=public FORK=true RULESETS_LIST='[]' CLASSIC=present bash "$BIN/audit.sh" o/r
 grep -qE '✗.*main-protection' <<<"$out" && bad "fork on classic flagged" || ok "fork on classic is not flagged"
+
+echo "audit.sh, writers: 0 approvals means any writer can self-merge (owner decision 2026-11-11)"
+OWNER_ONLY='[{"login":"o","permissions":{"push":true,"admin":true}}]'
+aud "$(solo '[]' 0)" COLLABS="${OWNER_ONLY%]},{\"login\":\"pal\",\"permissions\":{\"push\":true,\"admin\":false}}]"
+grep -qE '✗.*writers.*pal' <<<"$out" && ok "a write collaborator is ✗, named" || bad "write collaborator not flagged"
+aud "$(solo '[]' 0)" COLLABS="${OWNER_ONLY%]},{\"login\":\"viewer\",\"permissions\":{\"push\":false,\"admin\":false}}]"
+grep -q '✗' <<<"$out" && bad "read-only collaborator flagged" || ok "read-only collaborator passes (can't merge)"
+aud "$(solo '[]' 0)" INVITES='[{"invitee":{"login":"newbie"},"permissions":"write"}]'
+grep -qE '✗.*writers.*newbie \(invited\)' <<<"$out" && ok "pending write invite is ✗ (one click from writer)" || bad "write invite not flagged"
+aud "$(solo '[]' 0)" INVITES='[{"invitee":{"login":"reader"},"permissions":"read"}]'
+grep -q '✗' <<<"$out" && bad "read invite flagged" || ok "read invite passes"
+aud "$(solo '[]' 0)" COLLABS_ERR=1
+grep -qE '✗.*writers' <<<"$out" && ok "collaborators API error is ✗ (fails closed)" || bad "API error read as owner-only"
+aud "$(solo '[]' 0)" INVITES_ERR=1
+grep -qE '✗.*writers' <<<"$out" && ok "invitations API error is ✗ (fails closed)" || bad "invitations error read as owner-only"
+run VIS=public FORK=true RULESETS_LIST='[]' CLASSIC=present COLLABS="${OWNER_ONLY%]},{\"login\":\"pal\",\"permissions\":{\"push\":true,\"admin\":false}}]" bash "$BIN/audit.sh" o/r
+grep -qE '✗.*writers.*pal' <<<"$out" && ok "forks too" || bad "fork writer not flagged"
 
 [ "$fail" -eq 0 ] && echo "PASS" || { echo "FAILED"; exit 1; }

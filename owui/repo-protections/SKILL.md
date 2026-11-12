@@ -49,6 +49,17 @@ public repo is found lacking them. **Not optional once a repo is public.**
 | `delete_branch_on_merge` | true |
 | `has_issues` | true |
 
+### Writers: the owner only
+Every Ruleset here requires **0 approvals**, so anyone with write access can
+merge their own PR -- on `homelab` or `argocd-projects`, straight to
+production. The owner removed every outside collaborator on 2026-11-11
+(4 accounts across 5 repos). `audit.sh` keeps it that way: `writers` must read
+`owner only`. It flags any non-owner collaborator with push and any pending
+invite for write or above; read/triage access passes, and an API error is a
+✗, not a pass. To give someone access again, they need a review rule that
+binds them (approvals > 0 with an owner bypass), not just a collaborator
+seat.
+
 ### Branch protection on `main` (FORKS only)
 | Rule | Value |
 |---|---|

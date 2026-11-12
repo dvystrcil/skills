@@ -51,6 +51,8 @@ case "$args" in
   "api repos/o/r/rulesets/77") rs ;;
   "api repos/o/r/contents/"*|"api repos/o/r/license"*)
     echo '{"message":"Not Found"}'; exit 1 ;;
+  # Owner-only writers (the writers check is tested in solo_plain).
+  "api repos/"*"/collaborators?per_page=100"*|"api repos/"*"/invitations?per_page=100"*) echo '[]' ;;
   *) echo "stub gh: unexpected call: $args" >&2; exit 98 ;;
 esac
 STUB

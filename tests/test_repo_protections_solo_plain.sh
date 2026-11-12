@@ -61,7 +61,9 @@ case "$args" in
     echo "${RULESETS_LIST:-[]}" | jq -r "${args#api repos/o/r/rulesets --jq }" ;;
   "api repos/o/r/rulesets")    echo "${RULESETS_LIST:-[]}" ;;
   "api repos/o/r/rulesets/77") echo "$RULESET_77" ;;
-  *"-X POST"*"repos/o/r/rulesets"*)   cat > "$OUT/post.json"; echo '{"id":99}' ;;
+  *"-X POST"*"repos/o/r/rulesets"*)
+    [ -n "${POST_FAIL:-}" ] && { cat >/dev/null; echo '{"message":"Validation Failed","status":"422"}'; exit 1; }
+    cat > "$OUT/post.json"; echo '{"id":99}' ;;
   *"-X PUT"*"repos/o/r/rulesets/77"*) cat > "$OUT/put.json";  echo '{"id":77}' ;;
   "api repos/o/r/collaborators?per_page=100"*)
     [ -n "${COLLABS_ERR:-}" ] && { echo '{"message":"Server Error","status":"500"}'; exit 1; }
@@ -165,6 +167,13 @@ run RULESETS_LIST="[$OTHER]" RULESET_77="$OTHER" "${SIX[@]}" bash "$BIN/apply.sh
 echo "apply.sh, stale classic protection is stripped"
 run CLASSIC=present "${SIX[@]}" bash "$BIN/apply.sh" o/r
 [ -e "$STUB_DIR/classic_delete" ] && [ -s "$STUB_DIR/post.json" ] && ok "classic deleted, Ruleset created" || bad "classic not stripped (rc=$rc)"
+
+echo "apply.sh, a failed Ruleset create leaves classic protection in place"
+# The Ruleset is created FIRST, classic stripped only after it exists:
+# the other order leaves main unprotected whenever the create fails.
+run CLASSIC=present POST_FAIL=1 "${SIX[@]}" bash "$BIN/apply.sh" o/r
+[ "$rc" != 0 ] && ok "exit non-zero" || bad "exit 0 on a failed create"
+[ ! -e "$STUB_DIR/classic_delete" ] && ok "classic NOT deleted (main stays protected)" || bad "classic deleted before the Ruleset existed"
 
 echo "apply.sh --dry-run writes nothing"
 run "${SIX[@]}" bash "$BIN/apply.sh" o/r --dry-run

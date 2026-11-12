@@ -266,7 +266,7 @@ if [ "$is_fork" != "true" ]; then
       exit 0
     fi
     if [ "$replace_hand_made" != 1 ]; then
-      echo "    SKIPPED -- already protected by hand-made Ruleset(s): $others"
+      echo "    SKIPPED -- already protected by Ruleset(s): $others (hand-made)"
       echo "    Put its bot bypass actors in DIRECT_PUSH_APPS, then re-run with --replace-hand-made."
       echo
       echo "Done. Run audit.sh $REPO to confirm."

@@ -289,7 +289,7 @@ if [ "$is_fork" != "true" ]; then
       replace_ids="$replace_ids $rid"
     done
   fi
-  checks=$(derive_required_checks "$REPO") \
+  checks=$(required_checks "$REPO") \
     || { echo "    FAILED to read merged PRs' check-runs -- refusing to guess required checks" >&2; exit 1; }
   apps=$(direct_push_apps "$REPO")
   payload=$(solo_ruleset_payload "$apps" "$checks")

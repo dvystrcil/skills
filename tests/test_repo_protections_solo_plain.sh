@@ -229,6 +229,21 @@ echo "apply.sh, a FORK keeps classic (a no-bypass Ruleset breaks 'Sync fork')"
 run VIS=public FORK=true "${SIX[@]}" bash "$BIN/apply.sh" o/r
 [ -s "$STUB_DIR/classic_put.json" ] && [ ! -e "$STUB_DIR/post.json" ] && ok "fork: classic, no Ruleset" || bad "fork got a Ruleset (rc=$rc)"
 
+echo "apply.sh, PINNED_CHECKS are required even where history can't show them"
+# gateway-services (2026-11-12): verify-acs runs on every PR since #16, but
+# older PRs ran no checks, so derivation alone requires nothing and replacing
+# its hand-made Ruleset would have dropped the gate that Ruleset existed for.
+run PINNED_CHECKS_OVERRIDE='o/r=verify-acs / verify-acs' PRS='["b1","b2"]' bash "$BIN/apply.sh" o/r
+[ "$(jq -c '[.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[]]' "$STUB_DIR/post.json" 2>/dev/null)" \
+    = "[{\"context\":\"verify-acs / verify-acs\",\"integration_id\":$GHA}]" ] \
+  && ok "pinned check required with too few PRs to derive any" || bad "pinned check missing: $(cat "$STUB_DIR/post.json" 2>/dev/null)"
+run PINNED_CHECKS_OVERRIDE='o/r=lint;verify-acs / verify-acs' "${SIX[@]}" bash "$BIN/apply.sh" o/r
+[ "$(jq -c '[.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]' "$STUB_DIR/post.json" 2>/dev/null)" \
+    = '["lint","test","verify-acs / verify-acs"]' ] \
+  && ok "pinned checks union derived ones, no duplicates" || bad "union wrong: $(cat "$STUB_DIR/post.json" 2>/dev/null)"
+grep -qE '^\s*\[dvystrcil/gateway-services\]="verify-acs / verify-acs"' "$BIN/solo-ruleset.sh" \
+  && ok "gateway-services pins verify-acs" || bad "gateway-services pin missing"
+
 echo "audit.sh, private non-CD"
 solo() {  # bypass-json approvals
   jq -nc --argjson b "$1" --argjson n "$2" '{id:77,name:"main-protection",enforcement:"active",bypass_actors:$b,
@@ -257,6 +272,12 @@ grep -qE '✗.*bypass' <<<"$out" && ok "listed App missing from bypass is ✗ (i
 aud "$(solo '[]' 0)" CLASSIC=present
 grep -qE '✗.*classic' <<<"$out" && ok "solo Ruleset + leftover classic is ✗ (classic blocks bypassed bots)" || bad "leftover classic not flagged"
 
+aud "$(solo '[]' 0)" PINNED_CHECKS_OVERRIDE='o/r=verify-acs / verify-acs'
+grep -qE '✗.*required check.*verify-acs' <<<"$out" && ok "pinned check missing from the Ruleset is ✗" || bad "missing pinned check not flagged"
+WITH_CHECK=$(solo '[]' 0 | jq -c --argjson g $GHA '.rules += [{type:"required_status_checks",parameters:{required_status_checks:[{context:"verify-acs / verify-acs",integration_id:$g}]}}]')
+aud "$WITH_CHECK" PINNED_CHECKS_OVERRIDE='o/r=verify-acs / verify-acs'
+grep -q '✗' <<<"$out" && bad "present pinned check flagged" || ok "pinned check present passes"
+
 run RULESETS_LIST='[]' CLASSIC=present bash "$BIN/audit.sh" o/r
 grep -qE '✗.*main-protection' <<<"$out" && ok "private repo on classic protection is ✗" || bad "classic on private not flagged"
 
@@ -277,9 +298,10 @@ grep -qE '✗.*main-protection.*hand-made: main' <<<"$out" && ok "hand-made Rule
 aud "$HAND" HAND_MADE_RULESETS_OVERRIDE='o/r=kept for a reason'
 grep -q '✗' <<<"$out" && bad "recorded hand-made exception flagged" || ok "recorded hand-made exception passes"
 grep -qE 'hand-made.*kept for a reason' <<<"$out" && ok "says why it is an exception" || bad "exception reason not shown"
-for r in gateway-services neptune-4pro-klipper-backup; do
-  grep -qE "^\s*\[dvystrcil/$r\]=" "$BIN/solo-ruleset.sh" && ok "$r is a recorded exception" || bad "$r exception missing"
-done
+grep -qE "^\s*\[dvystrcil/neptune-4pro-klipper-backup\]=" "$BIN/solo-ruleset.sh" \
+  && ok "neptune-4pro-klipper-backup is a recorded exception" || bad "klipper-backup exception missing"
+grep -qE '^\s*\[dvystrcil/gateway-services\]="[^v]' "$BIN/solo-ruleset.sh" \
+  && bad "gateway-services is still a hand-made exception (it pins verify-acs instead)" || ok "gateway-services is no longer an exception"
 for a in 'skills\]="3693085"' 'homelab-heartbeat\]="3592257"'; do
   grep -qE "^\s*\[dvystrcil/$a" "$BIN/solo-ruleset.sh" && ok "DIRECT_PUSH_APPS: $a" || bad "DIRECT_PUSH_APPS missing $a"
 done

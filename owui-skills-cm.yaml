@@ -573,13 +573,18 @@ data:
       sibling `LICENSE-{docs,DOCS,CODE,prose}.md` is present — intentional, not drift.
     - **Deliberately non-MIT** (a recorded owner decision): listed in
       `LICENSE_EXCEPTIONS` in `bin/audit.sh`, which then wants exactly that
-      license. Today: `vt350` = GPL-3.0 (vt350#130).
+      license. Today: `vt350` = GPL-3.0 (vt350#130); `quality-first-slicer` =
+      NONE (deliberately no license yet: LICENSE must be absent until its
+      licensing review picks one).
+    - **Private repos:** a missing or non-MIT LICENSE, or a missing README, is
+      printed as a `·` note, not a ✗ (owner decision 2026-11-11). Public repos
+      must have both.
     
     ### Required files
     | File | Location | Reason |
     |---|---|---|
     | `LICENSE` | repo root | MIT, public repos must have one |
-    | `README.md` | repo root | Intent + install/use |
+    | `README.md` | repo root | Intent + install/use (required on public repos) |
     | `.github/CODEOWNERS` | `.github/` | Only where a rule requires code-owner review (classic protection). Elsewhere it must be absent: since GitHub Pro it auto-requests the owner's review on every PR, bot PRs included, while gating nothing |
     
     ### Default branch — always `main`, never `master`.

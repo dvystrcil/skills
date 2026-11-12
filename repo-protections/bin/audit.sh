@@ -17,6 +17,16 @@ OWNER="${OWNER:-dvystrcil}"
 
 fail=0
 
+# need <label> <got> <want>: check() on public repos. On private ones a miss
+# is printed as a note and does NOT fail the audit. Owner decision
+# 2026-11-11: LICENSE and README are for people who can read the repo; on 50
+# private deploy repos they kept `--all` red for a reason nobody meant to fix.
+# Uses audit_one's $vis (bash dynamic scope).
+need() {
+  if [ "${vis:-}" = public ] || [ "$2" = "$3" ]; then check "$@"; return; fi
+  printf "  \033[33m·\033[0m %-32s %s (want=%s on public repos only)\n" "$1" "$2" "$3"
+}
+
 check() {
   local label="$1" got="$2" want="$3"
   if [ "$got" = "$want" ]; then
@@ -87,6 +97,11 @@ declare -A LICENSE_EXCEPTIONS=(
   # GPL-3.0 or CC BY-NC-SA. Owner decision, vt350#122 phase 1 (vt350#130),
   # kept on 2026-11-11.
   [dvystrcil/vt350]="GPL-3.0"
+  # NONE = deliberately no license yet. An OrcaSlicer derivative: its own
+  # docs/licensing-and-provenance.md blocks a top-level LICENSE until the
+  # third-party inventory is done (AGPL-3.0-only is only the provisional
+  # candidate). When a LICENSE lands this goes ✗ -- update it here.
+  [dvystrcil/quality-first-slicer]="NONE"
 )
 # Tests: LICENSE_EXCEPTIONS_OVERRIDE='owner/repo=SPDX'
 if [ -n "${LICENSE_EXCEPTIONS_OVERRIDE:-}" ]; then
@@ -250,16 +265,16 @@ audit_one() {
       if [ -n "$docs_lic" ]; then
         printf "  \033[33m·\033[0m %-32s multi-license (umbrella + %s) — intentional\n" "license" "$docs_lic"
       else
-        check "license"               "$lic"     "MIT"
+        need "license"               "$lic"     "MIT"
       fi
     elif [ -n "${LICENSE_EXCEPTIONS[$repo]:-}" ]; then
       if [ "$lic" = "${LICENSE_EXCEPTIONS[$repo]}" ]; then
         printf "  \033[32m✓\033[0m %-32s %s (recorded exception)\n" "license" "$lic"
       else
-        check "license"               "$lic"     "${LICENSE_EXCEPTIONS[$repo]}"
+        need "license"               "$lic"     "${LICENSE_EXCEPTIONS[$repo]}"
       fi
     else
-      check "license"                 "$lic"     "MIT"
+      need "license"                 "$lic"     "MIT"
     fi
   fi
   check "allow_merge_commit"         "$merge"   "false"
@@ -273,10 +288,15 @@ audit_one() {
   # LICENSE: detect via license API (handles LICENSE / LICENSE.md / LICENSE.txt).
   if [ "$machine_managed" = "1" ]; then
     printf "  \033[33m·\033[0m %-32s exempt (machine-managed)\n" "license file"
-  elif gh api "repos/$repo/license" >/dev/null 2>&1; then
-    check "license file"             "present"  "present"
   else
-    check "license file"             "missing"  "present"
+    local lf=missing want_lf=present
+    gh api "repos/$repo/license" >/dev/null 2>&1 && lf=present
+    [ "${LICENSE_EXCEPTIONS[$repo]:-}" = NONE ] && want_lf=missing
+    if [ "$want_lf" = missing ] && [ "$lf" = missing ]; then
+      printf "  \033[32m✓\033[0m %-32s %s\n" "license file" "absent (recorded exception: no license yet)"
+    else
+      need "license file"            "$lf"      "$want_lf"
+    fi
   fi
 
   # Required files. CD repos still need CODEOWNERS — the Ruleset's
@@ -308,7 +328,7 @@ audit_one() {
     if gh api "repos/$repo/contents/$path" >/dev/null 2>&1; then
       check "file: $path"            "present"  "present"
     else
-      check "file: $path"            "missing"  "present"
+      need "file: $path"             "missing"  "present"
     fi
   done
   if [ "$codeowners_policy" != "exempt" ]; then

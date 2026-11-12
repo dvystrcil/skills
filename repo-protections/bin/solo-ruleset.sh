@@ -42,7 +42,29 @@ declare -A DIRECT_PUSH_APPS=(
   # wiki-mcp's git-sync sidecar pushes autosync commits; wiki-import and
   # wiki-lint push as the same App (llm-wiki#44), so one bypass covers all.
   [dvystrcil/llm-wiki]="4054155"
+  # rebuild-configmap.yml pushes the regenerated ConfigMap to main as the CICD
+  # App (6 rule-suite bypasses in Oct-Nov 2026, under the hand-made Ruleset).
+  [dvystrcil/skills]="3693085"
+  # n8n's heartbeat workflow commits every few minutes as the homelab n8n App
+  # (99 rule-suite bypasses by homelab-n8n-workflow[bot] in a month).
+  [dvystrcil/homelab-heartbeat]="3592257"
 )
+
+# Repos that keep a hand-made Ruleset instead of main-protection, and why.
+# Anywhere else, audit.sh flags a hand-made Ruleset and
+# `apply.sh --replace-hand-made` folds it into main-protection. Each entry
+# names what has to happen before it can move.
+declare -A HAND_MADE_RULESETS=(
+  # Owned by homelab#2111 (verify-acs required check). Another session's AC7.
+  [dvystrcil/gateway-services]="homelab#2111 owns this Ruleset (verify-acs gate)"
+  # Backups land through a role bypass; it moves once the backup job pushes
+  # as its own App (neptune-4pro-klipper-backup#10).
+  [dvystrcil/neptune-4pro-klipper-backup]="backup job needs its own App first (neptune-4pro-klipper-backup#10)"
+)
+# Tests: HAND_MADE_RULESETS_OVERRIDE='owner/repo=reason'
+if [ -n "${HAND_MADE_RULESETS_OVERRIDE:-}" ]; then
+  HAND_MADE_RULESETS[${HAND_MADE_RULESETS_OVERRIDE%%=*}]="${HAND_MADE_RULESETS_OVERRIDE#*=}"
+fi
 # Tests: DIRECT_PUSH_APPS_OVERRIDE='owner/repo=id,id'
 if [ -n "${DIRECT_PUSH_APPS_OVERRIDE:-}" ]; then
   DIRECT_PUSH_APPS[${DIRECT_PUSH_APPS_OVERRIDE%%=*}]="$(tr ',' ' ' <<<"${DIRECT_PUSH_APPS_OVERRIDE#*=}")"

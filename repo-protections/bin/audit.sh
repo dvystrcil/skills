@@ -128,9 +128,10 @@ writers_verdict() {
     '($c + $i) | if length == 0 then "owner only" else join(", ") end' 2>/dev/null || echo "error"
 }
 
-# audit_solo <owner/repo> <classic-protection-json-or-empty>: private non-CD
-# repos carry the solo Ruleset (solo-ruleset.sh). A hand-made Ruleset under
-# another name (a bot bypass predating the solo shape) is accepted as before.
+# audit_solo <owner/repo> <classic-protection-json-or-empty>: non-CD repos
+# carry the solo Ruleset (solo-ruleset.sh). A hand-made Ruleset under another
+# name passes only when HAND_MADE_RULESETS records why; anywhere else it is ✗
+# (`apply.sh --replace-hand-made` folds it in).
 # no_classic <classic-protection-json-or-empty>: ✗ when classic protection
 # is present -- beside any Ruleset it enforces in parallel.
 no_classic() {
@@ -149,8 +150,13 @@ audit_solo() {
   solo_id=$(echo "$rulesets_json" | jq -r --arg n "$SOLO_RULESET_NAME" '[.[] | select(.name==$n) | .id][0] // empty')
   others=$(echo "$rulesets_json" | jq -r --arg n "$SOLO_RULESET_NAME" \
     '[.[] | select(.enforcement=="active" and .name!=$n) | .name] | join(", ")')
+  if [ -z "$solo_id" ] && [ -n "$others" ] && [ -z "${HAND_MADE_RULESETS[$repo]:-}" ]; then
+    check "Ruleset $SOLO_RULESET_NAME" "absent (hand-made: $others)" "present"
+    no_classic "$prot"
+    return
+  fi
   if [ -z "$solo_id" ] && [ -n "$others" ]; then
-    printf "  \033[33m·\033[0m %-32s hand-made Ruleset: %s\n" "branch protection" "$others"
+    printf "  \033[33m·\033[0m %-32s hand-made Ruleset: %s (exception: %s)\n" "branch protection" "$others" "${HAND_MADE_RULESETS[$repo]}"
     local rid
     for rid in $(echo "$rulesets_json" | jq -r '.[] | select(.enforcement=="active") | .id'); do
       check "Ruleset $rid CICD bypass" \

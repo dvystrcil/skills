@@ -6,6 +6,8 @@
 #   apply.sh <owner/repo> --create-codeowners     # ALSO open a PR adding .github/CODEOWNERS
 #                                                 # if the repo doesn't have one
 #   apply.sh <owner/repo> --dry-run               # print the planned Ruleset, write nothing
+#   apply.sh <owner/repo> --replace-hand-made     # fold a hand-made Ruleset into main-protection:
+#                                                 # create main-protection, THEN delete the hand-made one
 #
 # This script is idempotent — re-running it is safe.
 # Branch protection's `require_code_owner_reviews: true` has no teeth without a
@@ -17,20 +19,22 @@ set -euo pipefail
 
 create_codeowners=0
 dry_run=0
+replace_hand_made=0
 REPO=""
 
 while [ "${1:-}" != "" ]; do
   case "$1" in
     --create-codeowners) create_codeowners=1 ;;
     --dry-run) dry_run=1 ;;
-    --help|-h) echo "usage: $0 <owner/repo> [--create-codeowners] [--dry-run]"; exit 0 ;;
+    --replace-hand-made) replace_hand_made=1 ;;
+    --help|-h) echo "usage: $0 <owner/repo> [--create-codeowners] [--dry-run] [--replace-hand-made]"; exit 0 ;;
     *) [ -z "$REPO" ] && REPO="$1" || { echo "unexpected arg: $1" >&2; exit 2; } ;;
   esac
   shift
 done
 
 if [ -z "$REPO" ]; then
-  echo "usage: $0 <owner/repo> [--create-codeowners] [--dry-run]" >&2
+  echo "usage: $0 <owner/repo> [--create-codeowners] [--dry-run] [--replace-hand-made]" >&2
   exit 2
 fi
 
@@ -246,15 +250,44 @@ if [ "$is_fork" != "true" ]; then
   solo_id=$(echo "$rulesets_json" | jq -r --arg n "$SOLO_RULESET_NAME" '[.[] | select(.name==$n) | .id][0] // empty')
   others=$(echo "$rulesets_json" \
     | jq -r --arg n "$SOLO_RULESET_NAME" '[.[] | select(.enforcement=="active" and .name!=$n) | .name] | join(", ")')
+  replace_ids=""
   if [ -z "$solo_id" ] && [ -n "$others" ]; then
-    # A hand-made Ruleset exists for a reason -- usually a bypass for a bot
-    # that pushes to main. Don't stack a second, bypass-less one on top: an
-    # actor bypassing Ruleset A is still blocked by Ruleset B.
-    echo "    SKIPPED -- already protected by Ruleset(s): $others (hand-made)"
-    echo "    (fold it into '$SOLO_RULESET_NAME' by hand, keeping its bypass actors in DIRECT_PUSH_APPS)"
-    echo
-    echo "Done. Run audit.sh $REPO to confirm."
-    exit 0
+    # Don't stack a second, bypass-less Ruleset on top of a hand-made one: an
+    # actor bypassing Ruleset A is still blocked by Ruleset B. Replace it, and
+    # only on request -- its bypass actors must be in DIRECT_PUSH_APPS first.
+    if [ -n "${HAND_MADE_RULESETS[$REPO]:-}" ]; then
+      [ "$replace_hand_made" = 1 ] && {
+        echo "    FAILED -- $REPO keeps its hand-made Ruleset ($others): ${HAND_MADE_RULESETS[$REPO]}" >&2
+        exit 1
+      }
+      echo "    SKIPPED -- hand-made Ruleset(s) $others kept: ${HAND_MADE_RULESETS[$REPO]}"
+      echo
+      echo "Done. Run audit.sh $REPO to confirm."
+      exit 0
+    fi
+    if [ "$replace_hand_made" != 1 ]; then
+      echo "    SKIPPED -- already protected by Ruleset(s): $others (hand-made)"
+      echo "    Put its bot bypass actors in DIRECT_PUSH_APPS, then re-run with --replace-hand-made."
+      echo
+      echo "Done. Run audit.sh $REPO to confirm."
+      exit 0
+    fi
+    # Only a Ruleset covering exactly the default branch may go: one that also
+    # covers other branches or tags protects more than main-protection will.
+    for rid in $(echo "$rulesets_json" | jq -r --arg n "$SOLO_RULESET_NAME" '.[] | select(.enforcement=="active" and .name!=$n) | .id'); do
+      rs=$(gh api "repos/$REPO/rulesets/$rid") \
+        || { echo "    FAILED to read Ruleset $rid -- refusing to replace it" >&2; exit 1; }
+      if ! echo "$rs" | jq -e --arg b "refs/heads/$default_branch" '
+           .target == "branch"
+           and ((.conditions.ref_name.include // []) | length > 0)
+           and all(.conditions.ref_name.include[]; . == "~DEFAULT_BRANCH" or . == $b)' >/dev/null; then
+        echo "    FAILED -- Ruleset $rid ($(echo "$rs" | jq -r .name)) covers more than $default_branch" \
+             "(target $(echo "$rs" | jq -r .target), include $(echo "$rs" | jq -c .conditions.ref_name.include));" \
+             "fold it by hand" >&2
+        exit 1
+      fi
+      replace_ids="$replace_ids $rid"
+    done
   fi
   checks=$(derive_required_checks "$REPO") \
     || { echo "    FAILED to read merged PRs' check-runs -- refusing to guess required checks" >&2; exit 1; }
@@ -263,6 +296,7 @@ if [ "$is_fork" != "true" ]; then
   echo "    solo Ruleset '$SOLO_RULESET_NAME': required checks $checks, bypass Apps $apps"
   if [ "$dry_run" = "1" ]; then
     echo "$payload" | jq .
+    for rid in $replace_ids; do echo "    would delete hand-made Ruleset $rid after creating '$SOLO_RULESET_NAME'"; done
     echo "    DRY RUN: nothing written"
     exit 0
   fi
@@ -288,6 +322,12 @@ if [ "$is_fork" != "true" ]; then
     gh api -X DELETE "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1 \
       || { echo "    FAILED to delete classic protection" >&2; exit 1; }
   fi
+  # The hand-made Ruleset goes last, once main-protection exists.
+  for rid in $replace_ids; do
+    gh api -X DELETE "repos/$REPO/rulesets/$rid" >/dev/null 2>&1 \
+      || { echo "    FAILED to delete hand-made Ruleset $rid (main-protection is in place)" >&2; exit 1; }
+    echo "    DELETED hand-made Ruleset $rid"
+  done
   echo
   echo "Done. Run audit.sh $REPO to confirm."
   exit 0

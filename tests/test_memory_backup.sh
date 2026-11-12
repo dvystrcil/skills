@@ -22,11 +22,15 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$HERE/../claude/memory-maintenance/bin/memory-backup.sh"
 
 fail=0
+# Every setup() makes a scratch dir; remove them all on exit, pass or fail.
+TMPS=()
+trap 'rm -rf "${TMPS[@]}"' EXIT
 ok()   { echo "ok - $1"; }
 bad()  { echo "FAIL - $1"; fail=1; }
 
 setup() {
   T=$(mktemp -d)
+  TMPS+=("$T")
   export HOME="$T/home" CLAUDE_CONFIG_DIR="$T/home/.claude"
   export XDG_STATE_HOME="$T/state"
   mkdir -p "$CLAUDE_CONFIG_DIR/projects/-proj/memory" "$HOME/.config/claude-memory"

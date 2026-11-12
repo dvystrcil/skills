@@ -412,6 +412,15 @@ audit_one() {
       check "Ruleset required approvals" "$approvals"    "0"
       check "Ruleset admin bypass"       "$admin_bypass" "absent"
       check "Ruleset CICD bypass"        "$cicd_bypass"  "absent"
+      # Rulesets stack: IU's push must pass every active one, so any other
+      # Ruleset without the IU bypass blocks it (glance, 2026-11-12).
+      for rid in $(gh api "repos/$repo/rulesets" --jq ".[] | select(.enforcement==\"active\" and .id!=$ruleset_id) | .id" 2>/dev/null); do
+        local other
+        other=$(gh api "repos/$repo/rulesets/$rid" 2>/dev/null || echo '{}')
+        if [ -z "$(iu_bypass_id "$other")" ]; then
+          check "Ruleset $(echo "$other" | jq -r '.name // "?"') ($rid)" "blocks IU (no IU bypass)" "IU bypass or removed"
+        fi
+      done
     fi
   elif [ "$fork" != "true" ]; then
     # Private and public alike (public since 2026-11-11). Forks keep classic.

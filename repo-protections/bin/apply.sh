@@ -126,6 +126,12 @@ if [ "$is_cd_repo" = "1" ]; then
       fi
     done
   fi
+  # A repo protected as a plain repo before it joined IU_WRITEBACK_REPOS has
+  # the solo Ruleset (glance, 2026-11-12). Convert that one in place: Rulesets
+  # stack, so a second one beside it would leave IU's push blocked.
+  if [ -z "$existing_id" ]; then
+    existing_id=$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$SOLO_RULESET_NAME\") | .id" 2>/dev/null || echo "")
+  fi
 
   # The solo CD Ruleset (owner decision 2026-11-10, after GitHub Pro): the IU
   # App is the ONLY bypass actor, and 0 approvals. The old shape required 1

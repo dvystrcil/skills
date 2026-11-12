@@ -85,7 +85,8 @@ fi
 # Read from the cluster 2026-11-11 (37 CRs, 37 repos).
 IU_WRITEBACK_REPOS=(
   dvystrcil/argocd-mcp dvystrcil/bentopdf dvystrcil/cloudflare dvystrcil/cluster-ops
-  dvystrcil/coder dvystrcil/deco-exporter dvystrcil/filebrowser-quantum dvystrcil/homepage
+  dvystrcil/coder dvystrcil/deco-exporter dvystrcil/filebrowser-quantum dvystrcil/glance
+  dvystrcil/homepage
   dvystrcil/immich dvystrcil/infisical dvystrcil/invidious dvystrcil/jellyfin
   dvystrcil/kroger-mcp dvystrcil/language-tool dvystrcil/mcp-server dvystrcil/mealie
   dvystrcil/mealie-mcp dvystrcil/n8n-workflow dvystrcil/nscale-calc dvystrcil/ollama

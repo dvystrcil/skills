@@ -67,6 +67,10 @@ case "$args" in
     [ -n "${POST_FAIL:-}" ] && { cat >/dev/null; echo '{"message":"Validation Failed","status":"422"}'; exit 1; }
     cat > "$OUT/post.json"; echo '{"id":99}' ;;
   *"-X PUT"*"repos/o/r/rulesets/77"*) cat > "$OUT/put.json";  echo '{"id":77}' ;;
+  "api -X DELETE repos/o/r/rulesets/"*)
+    [ -n "${RULESET_DELETE_FAIL:-}" ] && { echo '{"message":"Server Error","status":"500"}'; exit 1; }
+    touch "$OUT/ruleset_delete_${args##*/}"; echo '' ;;
+  "api repos/o/r/rulesets/78") echo "$RULESET_78" ;;
   "api repos/o/r/collaborators?per_page=100"*)
     [ -n "${COLLABS_ERR:-}" ] && { echo '{"message":"Server Error","status":"500"}'; exit 1; }
     # Not ${COLLABS:-<json>}: the JSON's first `}` would end the expansion.
@@ -89,7 +93,7 @@ STUB
 chmod +x "$STUB_DIR/gh"
 export PATH="$STUB_DIR:$PATH" OUT="$STUB_DIR"
 
-run() { rm -f "$STUB_DIR"/{post.json,put.json,classic_put.json,classic_delete,patch}; set +e; out=$(env "$@" 2>&1); rc=$?; set -e; }
+run() { rm -f "$STUB_DIR"/{post.json,put.json,classic_put.json,classic_delete,patch,ruleset_delete_*}; set +e; out=$(env "$@" 2>&1); rc=$?; set -e; }
 GHA=15368
 
 # Six merged PRs: lint + test ran on every one; e2e (path-filtered) on some;
@@ -170,6 +174,35 @@ run RULESETS_LIST="[$OTHER]" RULESET_77="$OTHER" "${SIX[@]}" bash "$BIN/apply.sh
 [ "$rc" = 0 ] && [ ! -e "$STUB_DIR/post.json" ] && [ ! -e "$STUB_DIR/put.json" ] && grep -q SKIPPED <<<"$out" \
   && ok "SKIPPED, nothing written" || bad "touched a hand-made Ruleset (rc=$rc)"
 
+echo "apply.sh --replace-hand-made folds a hand-made Ruleset into main-protection"
+# gpu-batch, skills, reloader, neptune, argocd-projects, homelab-heartbeat
+# (2026-11-12): hand-made Rulesets the audit never checked -- 1 approval with an
+# Admin always-bypass, or no PR rule at all. Create the solo Ruleset FIRST and
+# delete the hand-made one only after: the other order leaves main bare.
+HM='{"id":77,"name":"main-protection-with-bot-merge-bypass","enforcement":"active","target":"branch","conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"],"exclude":[]}},"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}],"rules":[{"type":"pull_request","parameters":{"required_approving_review_count":1}}]}'
+run RULESETS_LIST="[$HM]" RULESET_77="$HM" "${SIX[@]}" bash "$BIN/apply.sh" o/r --replace-hand-made
+[ "$rc" = 0 ] && [ -s "$STUB_DIR/post.json" ] && ok "solo Ruleset created" || bad "no solo Ruleset (rc=$rc)"
+[ -e "$STUB_DIR/ruleset_delete_77" ] && ok "hand-made Ruleset 77 deleted" || bad "hand-made Ruleset not deleted"
+run RULESETS_LIST="[$HM]" RULESET_77="$HM" POST_FAIL=1 "${SIX[@]}" bash "$BIN/apply.sh" o/r --replace-hand-made
+[ "$rc" != 0 ] && [ ! -e "$STUB_DIR/ruleset_delete_77" ] && ok "failed create: hand-made Ruleset kept" || bad "deleted the hand-made Ruleset without a replacement (rc=$rc)"
+run RULESETS_LIST="[$HM]" RULESET_77="$HM" RULESET_DELETE_FAIL=1 "${SIX[@]}" bash "$BIN/apply.sh" o/r --replace-hand-made
+[ "$rc" != 0 ] && ok "failed delete exits non-zero" || bad "failed delete exited 0"
+run RULESETS_LIST="[$HM]" RULESET_77="$HM" "${SIX[@]}" bash "$BIN/apply.sh" o/r --replace-hand-made --dry-run
+[ "$rc" = 0 ] && [ ! -e "$STUB_DIR/post.json" ] && [ ! -e "$STUB_DIR/ruleset_delete_77" ] && grep -q 'would delete.*77' <<<"$out" \
+  && ok "dry-run: names the Ruleset it would delete, writes nothing" || bad "dry-run wrote or said nothing (rc=$rc)"
+# A Ruleset that also covers other branches or tags protects more than main:
+# deleting it to make room for a main-only one drops that protection.
+WIDE="$(jq -c '.conditions.ref_name.include=["~ALL"]' <<<"$HM")"
+run RULESETS_LIST="[$WIDE]" RULESET_77="$WIDE" "${SIX[@]}" bash "$BIN/apply.sh" o/r --replace-hand-made
+[ "$rc" != 0 ] && [ ! -e "$STUB_DIR/post.json" ] && [ ! -e "$STUB_DIR/ruleset_delete_77" ] \
+  && ok "wider-than-main Ruleset: refused before writing anything" || bad "wide Ruleset handled (rc=$rc)"
+TAGS="$(jq -c '.target="tag"' <<<"$HM")"
+run RULESETS_LIST="[$TAGS]" RULESET_77="$TAGS" "${SIX[@]}" bash "$BIN/apply.sh" o/r --replace-hand-made
+[ "$rc" != 0 ] && [ ! -e "$STUB_DIR/post.json" ] && ok "tag Ruleset: refused" || bad "tag Ruleset handled (rc=$rc)"
+run RULESETS_LIST="[$HM]" RULESET_77="$HM" HAND_MADE_RULESETS_OVERRIDE='o/r=printer pushes as owner' "${SIX[@]}" bash "$BIN/apply.sh" o/r --replace-hand-made
+[ "$rc" != 0 ] && [ ! -e "$STUB_DIR/post.json" ] && [ ! -e "$STUB_DIR/ruleset_delete_77" ] \
+  && ok "recorded hand-made exception: refused" || bad "replaced a recorded exception (rc=$rc)"
+
 echo "apply.sh, stale classic protection is stripped"
 run CLASSIC=present "${SIX[@]}" bash "$BIN/apply.sh" o/r
 [ -e "$STUB_DIR/classic_delete" ] && [ -s "$STUB_DIR/post.json" ] && ok "classic deleted, Ruleset created" || bad "classic not stripped (rc=$rc)"
@@ -237,9 +270,22 @@ run VIS=public FORK=true RULESETS_LIST='[]' CLASSIC=present bash "$BIN/audit.sh"
 grep -qE '✗.*main-protection' <<<"$out" && bad "fork on classic flagged" || ok "fork on classic is not flagged"
 
 echo "audit.sh, hand-made Ruleset"
+# It used to pass on sight: 'hand-made' meant 'has a reason', and only its CICD
+# bypass mode was checked. On 2026-11-12 that hid gpu-batch and skills
+# (1 approval + Admin always-bypass: every agent session merges past review),
+# neptune (Admin always-bypass) and reloader (no PR rule at all).
 HAND='{"id":77,"name":"main","enforcement":"active","bypass_actors":[],"rules":[{"type":"deletion"},{"type":"non_fast_forward"}]}'
 aud "$HAND"
-grep -q '✗' <<<"$out" && bad "hand-made Ruleset alone flagged" || ok "hand-made Ruleset alone passes (left alone)"
+grep -qE '✗.*main-protection.*hand-made: main' <<<"$out" && ok "hand-made Ruleset is ✗, named" || bad "hand-made Ruleset not flagged"
+aud "$HAND" HAND_MADE_RULESETS_OVERRIDE='o/r=printer pushes as owner'
+grep -q '✗' <<<"$out" && bad "recorded hand-made exception flagged" || ok "recorded hand-made exception passes"
+grep -qE 'hand-made.*printer pushes as owner' <<<"$out" && ok "says why it is an exception" || bad "exception reason not shown"
+for r in gateway-services neptune-4pro-klipper-backup; do
+  grep -qE "^\s*\[dvystrcil/$r\]=" "$BIN/solo-ruleset.sh" && ok "$r is a recorded exception" || bad "$r exception missing"
+done
+for a in 'skills\]="3693085"' 'homelab-heartbeat\]="3592257"'; do
+  grep -qE "^\s*\[dvystrcil/$a" "$BIN/solo-ruleset.sh" && ok "DIRECT_PUSH_APPS: $a" || bad "DIRECT_PUSH_APPS missing $a"
+done
 # flatpak-repo, obico-docker, pihole-lists (2026-11-11): a hand-made Ruleset
 # AND classic protection with enforce_admins:false. The audit returned early
 # for hand-made Rulesets and never looked at classic.

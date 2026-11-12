@@ -79,6 +79,20 @@ codeowners_required() {
   echo 0
 }
 
+# Repos whose license is deliberately NOT MIT. The audit wants exactly the
+# listed SPDX id there -- a drift away from it is still a ✗. Each entry names
+# the decision that made it.
+declare -A LICENSE_EXCEPTIONS=(
+  # GPL-3.0-or-later for our own work; vendored/remixed third-party parts are
+  # GPL-3.0 or CC BY-NC-SA. Owner decision, vt350#122 phase 1 (vt350#130),
+  # kept on 2026-11-11.
+  [dvystrcil/vt350]="GPL-3.0"
+)
+# Tests: LICENSE_EXCEPTIONS_OVERRIDE='owner/repo=SPDX'
+if [ -n "${LICENSE_EXCEPTIONS_OVERRIDE:-}" ]; then
+  LICENSE_EXCEPTIONS[${LICENSE_EXCEPTIONS_OVERRIDE%%=*}]="${LICENSE_EXCEPTIONS_OVERRIDE#*=}"
+fi
+
 # writers_verdict <owner/repo>: "owner only", or the other logins that can
 # merge -- collaborators with push, plus pending invites for write and above
 # (one click from being a writer). "error" if either API call fails: an audit
@@ -235,6 +249,12 @@ audit_one() {
         printf "  \033[33m·\033[0m %-32s multi-license (umbrella + %s) — intentional\n" "license" "$docs_lic"
       else
         check "license"               "$lic"     "MIT"
+      fi
+    elif [ -n "${LICENSE_EXCEPTIONS[$repo]:-}" ]; then
+      if [ "$lic" = "${LICENSE_EXCEPTIONS[$repo]}" ]; then
+        printf "  \033[32m✓\033[0m %-32s %s (recorded exception)\n" "license" "$lic"
+      else
+        check "license"               "$lic"     "${LICENSE_EXCEPTIONS[$repo]}"
       fi
     else
       check "license"                 "$lic"     "MIT"

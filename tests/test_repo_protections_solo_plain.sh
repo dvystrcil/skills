@@ -40,7 +40,7 @@ args="$*"
 jqf() { if [[ "$args" == *" --jq "* ]]; then jq -r "${args#* --jq }"; else cat; fi; }
 case "$args" in
   "api repos/o/r")
-    jq -nc --arg v "${VIS:-private}" --arg f "${FORK:-false}" '{default_branch:"main",visibility:$v,allow_merge_commit:false,allow_squash_merge:true,allow_rebase_merge:true,delete_branch_on_merge:true,allow_auto_merge:false,has_issues:true,fork:($f=="true"),license:{spdx_id:"MIT"}}' ;;
+    jq -nc --arg v "${VIS:-private}" --arg f "${FORK:-false}" --arg l "${LIC:-MIT}" '{default_branch:"main",visibility:$v,allow_merge_commit:false,allow_squash_merge:true,allow_rebase_merge:true,delete_branch_on_merge:true,allow_auto_merge:false,has_issues:true,fork:($f=="true"),license:{spdx_id:$l}}' ;;
   "api repos/o/r/contents/image-updater") echo '{"message":"Not Found"}'; exit 1 ;;
   "api -X PATCH repos/o/r"*) touch "$OUT/patch"; echo '{}' ;;
   "api -X DELETE repos/o/r/branches/main/protection"*) touch "$OUT/classic_delete"; echo '' ;;
@@ -239,6 +239,16 @@ grep -q '✗' <<<"$out" && bad "hand-made Ruleset alone flagged" || ok "hand-mad
 # for hand-made Rulesets and never looked at classic.
 aud "$HAND" CLASSIC=present
 grep -qE '✗.*classic' <<<"$out" && ok "hand-made Ruleset + classic is ✗" || bad "hand-made + classic not flagged"
+
+echo "audit.sh, license exceptions (LICENSE_EXCEPTIONS)"
+aud "$(solo '[]' 0)" LIC=GPL-3.0
+grep -qE '✗.*license.*GPL-3.0' <<<"$out" && ok "GPL with no exception is ✗" || bad "unlisted GPL not flagged"
+aud "$(solo '[]' 0)" LIC=GPL-3.0 LICENSE_EXCEPTIONS_OVERRIDE='o/r=GPL-3.0'
+grep -q '✗' <<<"$out" && bad "listed GPL flagged" || ok "listed exception passes"
+grep -qE 'license.*GPL-3.0.*exception' <<<"$out" && ok "says it is a recorded exception" || bad "exception not labelled"
+aud "$(solo '[]' 0)" LIC=MIT LICENSE_EXCEPTIONS_OVERRIDE='o/r=GPL-3.0'
+grep -qE '✗.*license.*got=MIT want=GPL-3.0' <<<"$out" && ok "drift FROM the exception is ✗ (exact license, not 'anything goes')" || bad "drift from exception not flagged"
+grep -qE '^\s*\[dvystrcil/vt350\]="GPL-3.0"' "$BIN/audit.sh" && ok "vt350 is listed as GPL-3.0" || bad "vt350 exception missing"
 
 echo "audit.sh, writers: 0 approvals means any writer can self-merge (owner decision 2026-11-11)"
 OWNER_ONLY='[{"login":"o","permissions":{"push":true,"admin":true}}]'

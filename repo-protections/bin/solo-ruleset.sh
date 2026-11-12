@@ -55,12 +55,22 @@ declare -A DIRECT_PUSH_APPS=(
 # `apply.sh --replace-hand-made` folds it into main-protection. Each entry
 # names what has to happen before it can move.
 declare -A HAND_MADE_RULESETS=(
-  # Owned by homelab#2111 (verify-acs required check). Another session's AC7.
-  [dvystrcil/gateway-services]="homelab#2111 owns this Ruleset (verify-acs gate)"
   # Backups land through a role bypass; it moves once the backup job pushes
   # as its own App (neptune-4pro-klipper-backup#10).
   [dvystrcil/neptune-4pro-klipper-backup]="backup job needs its own App first (neptune-4pro-klipper-backup#10)"
 )
+# Required checks that main-protection keeps whatever recent PR history shows,
+# ';'-separated. derive_required_checks only requires what ran on EVERY one of
+# the last merged PRs, so a gate younger than that history is dropped.
+declare -A PINNED_CHECKS=(
+  # verify-acs gate (homelab#2111), required since gateway-services#16; it
+  # replaced that hand-made Ruleset, which required this check and nothing else.
+  [dvystrcil/gateway-services]="verify-acs / verify-acs"
+)
+# Tests: PINNED_CHECKS_OVERRIDE='owner/repo=check;check'
+if [ -n "${PINNED_CHECKS_OVERRIDE:-}" ]; then
+  PINNED_CHECKS[${PINNED_CHECKS_OVERRIDE%%=*}]="${PINNED_CHECKS_OVERRIDE#*=}"
+fi
 # Tests: HAND_MADE_RULESETS_OVERRIDE='owner/repo=reason'
 if [ -n "${HAND_MADE_RULESETS_OVERRIDE:-}" ]; then
   HAND_MADE_RULESETS[${HAND_MADE_RULESETS_OVERRIDE%%=*}]="${HAND_MADE_RULESETS_OVERRIDE#*=}"
@@ -138,6 +148,18 @@ derive_required_checks() {
   done
   if [ "$n" -lt "$SOLO_CHECKS_MIN_PRS" ] || [ -z "$acc" ]; then echo '[]'; return 0; fi
   echo "$acc" | jq -c 'sort'
+}
+
+# pinned_checks <owner/repo>: JSON array of its PINNED_CHECKS, sorted.
+pinned_checks() {
+  jq -nc --arg s "${PINNED_CHECKS[$1]:-}" '$s | split(";") | map(select(length > 0)) | sort'
+}
+
+# required_checks <owner/repo>: derived checks plus pinned ones, sorted, unique.
+required_checks() {
+  local derived
+  derived=$(derive_required_checks "$1") || return 1
+  jq -nc --argjson a "$derived" --argjson b "$(pinned_checks "$1")" '$a + $b | unique'
 }
 
 # solo_ruleset_payload <bypass-app-ids-json> <required-check-names-json>

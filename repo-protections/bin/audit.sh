@@ -184,6 +184,14 @@ audit_solo() {
     "$(echo "$ruleset" | jq -c '[.bypass_actors[]? | select(.actor_type=="Integration") | .actor_id] | sort')" \
     "$(direct_push_apps "$repo")"
   no_classic "$prot"
+  # A PINNED_CHECKS gate dropped from the Ruleset lets PRs merge without it.
+  local c have
+  have=$(echo "$ruleset" | jq -c '[.rules[]? | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]')
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    check "required check '$c'" \
+      "$(jq -nr --argjson h "$have" --arg c "$c" 'if ($h | index($c)) != null then "required" else "missing" end')" "required"
+  done < <(pinned_checks "$repo" | jq -r '.[]')
   printf "  \033[33m·\033[0m %-32s %s\n" "required checks" \
     "$(echo "$ruleset" | jq -c '[.rules[]? | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]')"
 }

@@ -27,6 +27,9 @@ SOLO_CHECKS_MIN_PRS="${SOLO_CHECKS_MIN_PRS:-5}"  # fewer -> no required checks
 #           client Iv23liIw1wD3KJsoUUwr; installed on homelab-weather only, Contents r/w
 #   4054155 GITSYNC_APP                 owner, from the App's settings page (2026-11-11);
 #           installation 140314699; installed on llm-wiki (+ quartz-viewer reads)
+#   5732919 dvystrcil-neptune-backup    owner, from the App's settings page; GitHub's
+#           GET /app with a JWT signed by its key returned this id (2026-11-12);
+#           installed on neptune-4pro-klipper-backup only
 #
 # NEVER the GitHub Actions App (15368). On a user-owned repo GitHub rejects it:
 #   422 "Actor GitHub Actions integration must be part of the ruleset source
@@ -48,16 +51,19 @@ declare -A DIRECT_PUSH_APPS=(
   # n8n's heartbeat workflow commits every few minutes as the homelab n8n App
   # (99 rule-suite bypasses by homelab-n8n-workflow[bot] in a month).
   [dvystrcil/homelab-heartbeat]="3592257"
+  # The printer's klipper-backup job pushes config backups as this App, with a
+  # one-hour token from utilities' klipper-backup-app-token
+  # (neptune-4pro-klipper-backup#10).
+  [dvystrcil/neptune-4pro-klipper-backup]="5732919"
 )
 
 # Repos that keep a hand-made Ruleset instead of main-protection, and why.
 # Anywhere else, audit.sh flags a hand-made Ruleset and
 # `apply.sh --replace-hand-made` folds it into main-protection. Each entry
 # names what has to happen before it can move.
+# Empty since 2026-11-12 (gateway-services: PINNED_CHECKS; klipper-backup: its
+# own App in DIRECT_PUSH_APPS).
 declare -A HAND_MADE_RULESETS=(
-  # Backups land through a role bypass; it moves once the backup job pushes
-  # as its own App (neptune-4pro-klipper-backup#10).
-  [dvystrcil/neptune-4pro-klipper-backup]="backup job needs its own App first (neptune-4pro-klipper-backup#10)"
 )
 # Required checks that main-protection keeps whatever recent PR history shows,
 # ';'-separated. derive_required_checks only requires what ran on EVERY one of

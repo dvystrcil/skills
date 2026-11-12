@@ -102,6 +102,14 @@ writers_verdict() {
 # audit_solo <owner/repo> <classic-protection-json-or-empty>: private non-CD
 # repos carry the solo Ruleset (solo-ruleset.sh). A hand-made Ruleset under
 # another name (a bot bypass predating the solo shape) is accepted as before.
+# no_classic <classic-protection-json-or-empty>: ✗ when classic protection
+# is present -- beside any Ruleset it enforces in parallel.
+no_classic() {
+  if [ -n "$1" ] && ! echo "$1" | grep -q '"message"'; then
+    check "no classic protection" "present" "absent"
+  fi
+}
+
 audit_solo() {
   local repo="$1" prot="$2" rulesets_json solo_id others ruleset
   if ! rulesets_json=$(gh api "repos/$repo/rulesets" 2>/dev/null) \
@@ -119,6 +127,10 @@ audit_solo() {
       check "Ruleset $rid CICD bypass" \
         "$(cicd_bypass_verdict "$(gh api "repos/$repo/rulesets/$rid" 2>/dev/null || echo '{}')" 0 "$repo")" "ok"
     done
+    # A hand-made Ruleset doesn't excuse classic protection beside it: classic
+    # with enforce_admins:false lets the owner's credential push straight to
+    # main (flatpak-repo, obico-docker, pihole-lists until 2026-11-11).
+    no_classic "$prot"
     return
   fi
   if [ -z "$solo_id" ]; then
@@ -136,9 +148,7 @@ audit_solo() {
   check "Ruleset bypass Apps" \
     "$(echo "$ruleset" | jq -c '[.bypass_actors[]? | select(.actor_type=="Integration") | .actor_id] | sort')" \
     "$(direct_push_apps "$repo")"
-  if [ -n "$prot" ] && ! echo "$prot" | grep -q '"message"'; then
-    check "no classic protection" "present" "absent"
-  fi
+  no_classic "$prot"
   printf "  \033[33m·\033[0m %-32s %s\n" "required checks" \
     "$(echo "$ruleset" | jq -c '[.rules[]? | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]')"
 }

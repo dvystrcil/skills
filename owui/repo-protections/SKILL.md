@@ -94,7 +94,7 @@ Actions App (15368): GitHub rejects it as a bypass on a user-owned repo, so a
 workflow pushing with `GITHUB_TOKEN` must push as an App instead. `audit.sh` checks
 the Ruleset is active, 0 approvals, no admin bypass, bypass Apps exactly as
 listed, no classic protection. Hand-made Rulesets under another name are left
-alone.
+alone, but classic protection beside one is still flagged.
 
 ### CD repos use Rulesets with IU bypass
 

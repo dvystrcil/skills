@@ -93,19 +93,6 @@ if [ "$is_cd_repo" = "1" ]; then
     echo "    DRY RUN: CD repo -- would apply the IU-bypass Ruleset (see the CD path); nothing written"
     exit 0
   fi
-  # Conversion case: if this repo previously ran through apply.sh as a
-  # non-CD repo (before the image-updater/ directory existed), classic
-  # Branch Protection is still in place. Classic and Ruleset enforce in
-  # parallel — classic has no per-actor bypass list, so IU's push still
-  # gets rejected with GH006 even though the Ruleset bypass is correct.
-  # Strip classic protection first so only the Ruleset (with IU bypass)
-  # remains. Idempotent: 404 if already absent, swallow it.
-  if gh api "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1; then
-    echo "    STRIPPING stale classic Branch Protection (conflicts with Ruleset bypass)"
-    gh api -X DELETE "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1 \
-      || { echo "    FAILED to delete classic protection" >&2; exit 1; }
-  fi
-
   # Any failure to list Rulesets is a failure, private or not. The account
   # has been on GitHub Pro since 2026-11-10; before that a private repo's 403
   # was "SKIPPED" with exit 0, and every private CD repo stayed unprotected
@@ -192,6 +179,19 @@ if [ "$is_cd_repo" = "1" ]; then
     fi
   fi
 
+  # Conversion case: if this repo previously ran through apply.sh as a
+  # non-CD repo (before the image-updater/ directory existed), classic
+  # Branch Protection is still in place. Classic and Ruleset enforce in
+  # parallel — classic has no per-actor bypass list, so IU's push still
+  # gets rejected with GH006 even though the Ruleset bypass is correct.
+  # Strip it so only the Ruleset (with IU bypass) remains -- AFTER the
+  # Ruleset exists: stripped first, a failed create left main unprotected.
+  if gh api "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1; then
+    echo "    STRIPPING stale classic Branch Protection (conflicts with Ruleset bypass)"
+    gh api -X DELETE "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1 \
+      || { echo "    FAILED to delete classic protection" >&2; exit 1; }
+  fi
+
   echo
   echo "Done. Run audit.sh $REPO to confirm."
   exit 0
@@ -263,14 +263,6 @@ if [ "$is_fork" != "true" ]; then
     echo "    DRY RUN: nothing written"
     exit 0
   fi
-  # Classic protection enforces in parallel with the Ruleset and has no
-  # bypass list (a listed App would still be rejected with GH006), and its
-  # enforce_admins:false is the hole this Ruleset closes. Strip it.
-  if gh api "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1; then
-    echo "    STRIPPING classic Branch Protection (replaced by the Ruleset)"
-    gh api -X DELETE "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1 \
-      || { echo "    FAILED to delete classic protection" >&2; exit 1; }
-  fi
   if [ -n "$solo_id" ]; then
     method=PUT; path="repos/$REPO/rulesets/$solo_id"; verb=updated
   else
@@ -282,6 +274,16 @@ if [ "$is_fork" != "true" ]; then
     echo "    FAILED ($method $path):" >&2
     echo "$payload" | gh api -X "$method" -H "Accept: application/vnd.github+json" "$path" --input - >&2 || true
     exit 1
+  fi
+  # Classic protection enforces in parallel with the Ruleset and has no
+  # bypass list (a listed App would still be rejected with GH006), and its
+  # enforce_admins:false is the hole this Ruleset closes. Strip it -- only
+  # AFTER the Ruleset exists: stripped first, a failed create left main
+  # with no protection at all.
+  if gh api "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1; then
+    echo "    STRIPPING classic Branch Protection (replaced by the Ruleset)"
+    gh api -X DELETE "repos/$REPO/branches/$default_branch/protection" >/dev/null 2>&1 \
+      || { echo "    FAILED to delete classic protection" >&2; exit 1; }
   fi
   echo
   echo "Done. Run audit.sh $REPO to confirm."

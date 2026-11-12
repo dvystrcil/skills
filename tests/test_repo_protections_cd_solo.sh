@@ -42,13 +42,17 @@ case "$args" in
     echo '{"default_branch":"main","visibility":"private","allow_merge_commit":false,"allow_squash_merge":true,"allow_rebase_merge":true,"delete_branch_on_merge":true,"allow_auto_merge":false,"has_issues":true,"fork":false}' ;;
   "api repos/o/r/contents/image-updater") echo '[]' ;;
   "api -X PATCH repos/o/r"*) echo '{}' ;;
+  "api -X DELETE repos/o/r/branches/main/protection"*) touch "$STUB_DIR_OUT/classic_delete"; echo '' ;;
   "api repos/o/r/branches/main/protection"*)
+    [ "${CLASSIC:-absent}" = present ] && { echo '{"required_pull_request_reviews":{"required_approving_review_count":1}}'; exit 0; }
     echo '{"message":"Branch not protected","status":"404"}'; exit 1 ;;
   "api repos/o/r/rulesets --jq "*)
     echo "$RULESETS_LIST" | jq -r "${args#api repos/o/r/rulesets --jq }" ;;
   "api repos/o/r/rulesets")    echo "$RULESETS_LIST" ;;
   "api repos/o/r/rulesets/77") echo "$RULESET_77" ;;
-  *"-X POST"*"repos/o/r/rulesets"*)    cat > "$STUB_DIR_OUT/post.json"; echo '{"id":99}' ;;
+  *"-X POST"*"repos/o/r/rulesets"*)
+    [ -n "${POST_FAIL:-}" ] && { cat >/dev/null; echo '{"message":"Validation Failed","status":"422"}'; exit 1; }
+    cat > "$STUB_DIR_OUT/post.json"; echo '{"id":99}' ;;
   *"-X PUT"*"repos/o/r/rulesets/77"*)  cat > "$STUB_DIR_OUT/put.json";  echo '{"id":77}' ;;
   "api repos/o/r/contents/"*|"api repos/o/r/license"*)
     echo '{"message":"Not Found"}'; exit 1 ;;
@@ -70,6 +74,16 @@ payload_checks() {  # file label
   [ "$(jq -c '[.rules[].type] | sort' "$p")" = '["deletion","non_fast_forward","pull_request"]' ] \
     && ok "$l: deletion + non_fast_forward + pull_request" || bad "$l: rules $(jq -c '[.rules[].type]' "$p")"
 }
+
+echo "apply.sh, CD repo with stale classic: Ruleset first, then strip"
+rm -f "$STUB_DIR"/post.json "$STUB_DIR"/put.json "$STUB_DIR"/classic_delete
+run RULESETS_LIST='[]' CLASSIC=present bash "$BIN/apply.sh" o/r
+[ -s "$STUB_DIR/post.json" ] && [ -e "$STUB_DIR/classic_delete" ] && ok "Ruleset created, classic stripped" || bad "conversion incomplete (rc=$rc)"
+rm -f "$STUB_DIR"/post.json "$STUB_DIR"/classic_delete
+run RULESETS_LIST='[]' CLASSIC=present POST_FAIL=1 bash "$BIN/apply.sh" o/r
+[ "$rc" != 0 ] && [ ! -e "$STUB_DIR/classic_delete" ] && ok "failed create: classic NOT deleted (main stays protected)" \
+  || bad "classic deleted before the Ruleset existed (rc=$rc)"
+rm -f "$STUB_DIR"/classic_delete
 
 echo "apply.sh, CD repo, no Ruleset yet"
 rm -f "$STUB_DIR"/post.json "$STUB_DIR"/put.json

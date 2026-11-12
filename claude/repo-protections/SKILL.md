@@ -186,7 +186,9 @@ planned Ruleset without writing anything. `audit.sh` checks it is active,
 0 approvals, no role/admin bypass, bypass Apps exactly as listed, no classic
 protection. A repo whose only protection is a hand-made Ruleset under
 another name (homelab-heartbeat, skills, neptune-4pro-klipper-backup — bot
-bypasses that predate this shape) is left alone by both scripts.
+bypasses that predate this shape) is left alone by both scripts -- but
+classic protection beside it is still a ✗ in `audit.sh` (it enforces in
+parallel, and its `enforce_admins: false` is the hole).
 
 **Bots that push to `main`.** A Ruleset with no bypass rejects them with
 `GH013`. Before rolling it onto a repo, list its `main` commits from the last

@@ -298,11 +298,11 @@ grep -qE '✗.*main-protection.*hand-made: main' <<<"$out" && ok "hand-made Rule
 aud "$HAND" HAND_MADE_RULESETS_OVERRIDE='o/r=kept for a reason'
 grep -q '✗' <<<"$out" && bad "recorded hand-made exception flagged" || ok "recorded hand-made exception passes"
 grep -qE 'hand-made.*kept for a reason' <<<"$out" && ok "says why it is an exception" || bad "exception reason not shown"
-grep -qE "^\s*\[dvystrcil/neptune-4pro-klipper-backup\]=" "$BIN/solo-ruleset.sh" \
-  && ok "neptune-4pro-klipper-backup is a recorded exception" || bad "klipper-backup exception missing"
+n_exc=$(awk '/^declare -A HAND_MADE_RULESETS=\(/{f=1;next} f&&/^\)/{f=0} f&&/^[[:space:]]*\[/' "$BIN/solo-ruleset.sh" | wc -l)
+[ "$n_exc" -eq 0 ] && ok "HAND_MADE_RULESETS is empty (no repo excepted)" || bad "HAND_MADE_RULESETS has $n_exc entries"
 grep -qE '^\s*\[dvystrcil/gateway-services\]="[^v]' "$BIN/solo-ruleset.sh" \
   && bad "gateway-services is still a hand-made exception (it pins verify-acs instead)" || ok "gateway-services is no longer an exception"
-for a in 'skills\]="3693085"' 'homelab-heartbeat\]="3592257"'; do
+for a in 'skills\]="3693085"' 'homelab-heartbeat\]="3592257"' 'neptune-4pro-klipper-backup\]="5732919"'; do
   grep -qE "^\s*\[dvystrcil/$a" "$BIN/solo-ruleset.sh" && ok "DIRECT_PUSH_APPS: $a" || bad "DIRECT_PUSH_APPS missing $a"
 done
 # flatpak-repo, obico-docker, pihole-lists (2026-11-11): a hand-made Ruleset

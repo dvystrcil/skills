@@ -79,6 +79,11 @@ in `bin/audit.sh`, with the decision it came from. The audit then wants
 exactly that SPDX id: drifting away from it is still a ✗. Today:
 `dvystrcil/vt350` = GPL-3.0 (GPL-3.0-or-later for our own work; its
 vendored/remixed parts are GPL-3.0 or CC BY-NC-SA — vt350#130).
+`NONE` records "deliberately no license yet": the LICENSE file must then be
+absent too, and one appearing is a ✗ (update the exception). Today:
+`dvystrcil/quality-first-slicer` = NONE (an OrcaSlicer derivative; its
+`docs/licensing-and-provenance.md` blocks a top-level LICENSE until the
+third-party inventory is done — AGPL-3.0-only is only the provisional candidate).
 
 **When to dual-license:** any repo where the prose IS the deliverable, or
 where you might want someone to cite the writing without inheriting an MIT
@@ -87,10 +92,17 @@ a service) don't need this.
 
 ### Required files at repo root or `.github/`
 
+**Private repos: LICENSE and README are reported, not required** (owner
+decision 2026-11-11). `audit.sh` prints a missing or non-MIT one as a `·`
+note ("want=… on public repos only") and does not fail. Before this, 50
+private deploy repos kept `--all` red for a reason nobody meant to fix, which
+hid the two repos that had no protection at all. Making a repo public turns
+the notes back into ✗.
+
 | File | Where | Why |
 |---|---|---|
-| `LICENSE` | root | MIT, required for any public repo |
-| `README.md` | root | Project intent + install/use instructions |
+| `LICENSE` | root | MIT, required for any **public** repo |
+| `README.md` | root | Project intent + install/use instructions; required on **public** repos |
 | `.github/CODEOWNERS` | `.github/` | **Only where a rule requires code-owner review** (classic protection below). Elsewhere it must be **absent** — see "CODEOWNERS is conditional" |
 
 ### CODEOWNERS is conditional

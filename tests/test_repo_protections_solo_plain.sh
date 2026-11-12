@@ -75,7 +75,11 @@ case "$args" in
   "api repos/o/r/invitations?per_page=100"*)
     [ -n "${INVITES_ERR:-}" ] && { echo '{"message":"Server Error","status":"500"}'; exit 1; }
     echo "${INVITES:-[]}" | jqf ;;
-  "api repos/o/r/license"*) echo '{}' ;;
+  "api repos/o/r/license"*)
+    [ "${LICFILE:-present}" = missing ] && { echo '{"message":"Not Found"}'; exit 1; }; echo '{}' ;;
+  "api repos/o/r/contents/LICENSE-"*) echo '{"message":"Not Found"}'; exit 1 ;;  # no docs-license sibling
+  "api repos/o/r/contents/README.md"*)
+    [ "${README:-present}" = missing ] && { echo '{"message":"Not Found"}'; exit 1; }; echo '{}' ;;
   # The solo Ruleset requires no code-owner review, so no CODEOWNERS (skills#93).
   "api repos/o/r/contents/.github/CODEOWNERS"*) echo '{"message":"Not Found"}'; exit 1 ;;
   "api repos/o/r/contents/"*) echo '{}' ;;
@@ -243,14 +247,41 @@ aud "$HAND" CLASSIC=present
 grep -qE '✗.*classic' <<<"$out" && ok "hand-made Ruleset + classic is ✗" || bad "hand-made + classic not flagged"
 
 echo "audit.sh, license exceptions (LICENSE_EXCEPTIONS)"
-aud "$(solo '[]' 0)" LIC=GPL-3.0
+aud "$(solo '[]' 0)" VIS=public LIC=GPL-3.0
 grep -qE '✗.*license.*GPL-3.0' <<<"$out" && ok "GPL with no exception is ✗" || bad "unlisted GPL not flagged"
-aud "$(solo '[]' 0)" LIC=GPL-3.0 LICENSE_EXCEPTIONS_OVERRIDE='o/r=GPL-3.0'
+aud "$(solo '[]' 0)" VIS=public LIC=GPL-3.0 LICENSE_EXCEPTIONS_OVERRIDE='o/r=GPL-3.0'
 grep -q '✗' <<<"$out" && bad "listed GPL flagged" || ok "listed exception passes"
 grep -qE 'license.*GPL-3.0.*exception' <<<"$out" && ok "says it is a recorded exception" || bad "exception not labelled"
-aud "$(solo '[]' 0)" LIC=MIT LICENSE_EXCEPTIONS_OVERRIDE='o/r=GPL-3.0'
+aud "$(solo '[]' 0)" VIS=public LIC=MIT LICENSE_EXCEPTIONS_OVERRIDE='o/r=GPL-3.0'
 grep -qE '✗.*license.*got=MIT want=GPL-3.0' <<<"$out" && ok "drift FROM the exception is ✗ (exact license, not 'anything goes')" || bad "drift from exception not flagged"
 grep -qE '^\s*\[dvystrcil/vt350\]="GPL-3.0"' "$BIN/audit.sh" && ok "vt350 is listed as GPL-3.0" || bad "vt350 exception missing"
+
+plain() { sed 's/\x1b\[[0-9;]*m//g' <<<"$out"; }
+echo "audit.sh, LICENSE + README are required on PUBLIC repos only (owner decision 2026-11-11)"
+aud "$(solo '[]' 0)" VIS=public LIC=NONE LICFILE=missing README=missing
+for l in 'license ' 'license file' 'file: README.md'; do
+  grep -qE "✗ $l" <<<"$(plain)" && ok "public, missing: ✗ $l" || bad "public: $l not flagged"
+done
+aud "$(solo '[]' 0)" VIS=private LIC=NONE LICFILE=missing README=missing
+grep -q '✗' <<<"$(plain)" && bad "private repo without LICENSE/README flagged" || ok "private, missing: no ✗"
+for l in 'license ' 'license file' 'file: README.md'; do
+  grep -qE "· $l.*public repos only" <<<"$(plain)" && ok "private, missing: still reported as a note ($l)" || bad "private: $l not reported"
+done
+aud "$(solo '[]' 0)" VIS=private LIC=NOASSERTION
+grep -q '✗' <<<"$(plain)" && bad "private NOASSERTION flagged" || ok "private, unidentified license: no ✗"
+aud "$(solo '[]' 0)" VIS=private
+grep -qE '✓ license +MIT' <<<"$(plain)" && ok "private with MIT still shows ✓" || bad "private MIT not ✓"
+aud "$(solo '[]' 0)" VIS=public LIC=NOASSERTION
+grep -qE '✗ license ' <<<"$(plain)" && ok "public NOASSERTION is still ✗" || bad "public NOASSERTION not flagged"
+
+echo "audit.sh, a recorded 'no license yet' (exception NONE)"
+aud "$(solo '[]' 0)" VIS=public LIC=NONE LICFILE=missing LICENSE_EXCEPTIONS_OVERRIDE='o/r=NONE'
+grep -q '✗' <<<"$(plain)" && bad "NONE exception still flagged" || ok "NONE exception: no LICENSE passes on a public repo"
+grep -qE 'license file.*absent.*exception' <<<"$(plain)" && ok "license file: says absent by exception" || bad "license file not labelled"
+aud "$(solo '[]' 0)" VIS=public LIC=AGPL-3.0 LICENSE_EXCEPTIONS_OVERRIDE='o/r=NONE'
+grep -qE '✗ license +got=AGPL-3.0 want=NONE' <<<"$(plain)" && ok "a LICENSE appearing is ✗ (update the exception)" || bad "license appearing not flagged"
+grep -qE '✗ license file +got=present want=missing' <<<"$(plain)" && ok "license file appearing is ✗" || bad "license file appearing not flagged"
+grep -qE '^\s*\[dvystrcil/quality-first-slicer\]="NONE"' "$BIN/audit.sh" && ok "quality-first-slicer is listed as NONE" || bad "quality-first-slicer exception missing"
 
 echo "audit.sh, writers: 0 approvals means any writer can self-merge (owner decision 2026-11-11)"
 OWNER_ONLY='[{"login":"o","permissions":{"push":true,"admin":true}}]'

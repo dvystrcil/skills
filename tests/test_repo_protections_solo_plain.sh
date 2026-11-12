@@ -221,6 +221,16 @@ grep -qE '✗.*main-protection' <<<"$out" && ok "public repo still on classic is
 run VIS=public FORK=true RULESETS_LIST='[]' CLASSIC=present bash "$BIN/audit.sh" o/r
 grep -qE '✗.*main-protection' <<<"$out" && bad "fork on classic flagged" || ok "fork on classic is not flagged"
 
+echo "audit.sh, hand-made Ruleset"
+HAND='{"id":77,"name":"main","enforcement":"active","bypass_actors":[],"rules":[{"type":"deletion"},{"type":"non_fast_forward"}]}'
+aud "$HAND"
+grep -q '✗' <<<"$out" && bad "hand-made Ruleset alone flagged" || ok "hand-made Ruleset alone passes (left alone)"
+# flatpak-repo, obico-docker, pihole-lists (2026-11-11): a hand-made Ruleset
+# AND classic protection with enforce_admins:false. The audit returned early
+# for hand-made Rulesets and never looked at classic.
+aud "$HAND" CLASSIC=present
+grep -qE '✗.*classic' <<<"$out" && ok "hand-made Ruleset + classic is ✗" || bad "hand-made + classic not flagged"
+
 echo "audit.sh, writers: 0 approvals means any writer can self-merge (owner decision 2026-11-11)"
 OWNER_ONLY='[{"login":"o","permissions":{"push":true,"admin":true}}]'
 aud "$(solo '[]' 0)" COLLABS="${OWNER_ONLY%]},{\"login\":\"pal\",\"permissions\":{\"push\":true,\"admin\":false}}]"

@@ -57,10 +57,9 @@ declare -A DIRECT_PUSH_APPS=(
 declare -A HAND_MADE_RULESETS=(
   # Owned by homelab#2111 (verify-acs required check). Another session's AC7.
   [dvystrcil/gateway-services]="homelab#2111 owns this Ruleset (verify-acs gate)"
-  # The printer (user mks) pushes backups with the owner's credential through
-  # the Ruleset's role bypass. A solo Ruleset would reject them until the
-  # printer pushes as its own App or deploy key.
-  [dvystrcil/neptune-4pro-klipper-backup]="printer pushes backups as the owner via the role bypass"
+  # Backups land through a role bypass; it moves once the backup job pushes
+  # as its own App (neptune-4pro-klipper-backup#10).
+  [dvystrcil/neptune-4pro-klipper-backup]="backup job needs its own App first (neptune-4pro-klipper-backup#10)"
 )
 # Tests: HAND_MADE_RULESETS_OVERRIDE='owner/repo=reason'
 if [ -n "${HAND_MADE_RULESETS_OVERRIDE:-}" ]; then

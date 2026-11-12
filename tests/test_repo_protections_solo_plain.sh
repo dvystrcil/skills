@@ -175,10 +175,8 @@ run RULESETS_LIST="[$OTHER]" RULESET_77="$OTHER" "${SIX[@]}" bash "$BIN/apply.sh
   && ok "SKIPPED, nothing written" || bad "touched a hand-made Ruleset (rc=$rc)"
 
 echo "apply.sh --replace-hand-made folds a hand-made Ruleset into main-protection"
-# gpu-batch, skills, reloader, neptune, argocd-projects, homelab-heartbeat
-# (2026-11-12): hand-made Rulesets the audit never checked -- 1 approval with an
-# Admin always-bypass, or no PR rule at all. Create the solo Ruleset FIRST and
-# delete the hand-made one only after: the other order leaves main bare.
+# Create the solo Ruleset FIRST and delete the hand-made one only after: the
+# other order leaves main bare.
 HM='{"id":77,"name":"main-protection-with-bot-merge-bypass","enforcement":"active","target":"branch","conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"],"exclude":[]}},"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}],"rules":[{"type":"pull_request","parameters":{"required_approving_review_count":1}}]}'
 run RULESETS_LIST="[$HM]" RULESET_77="$HM" "${SIX[@]}" bash "$BIN/apply.sh" o/r --replace-hand-made
 [ "$rc" = 0 ] && [ -s "$STUB_DIR/post.json" ] && ok "solo Ruleset created" || bad "no solo Ruleset (rc=$rc)"
@@ -199,7 +197,7 @@ run RULESETS_LIST="[$WIDE]" RULESET_77="$WIDE" "${SIX[@]}" bash "$BIN/apply.sh" 
 TAGS="$(jq -c '.target="tag"' <<<"$HM")"
 run RULESETS_LIST="[$TAGS]" RULESET_77="$TAGS" "${SIX[@]}" bash "$BIN/apply.sh" o/r --replace-hand-made
 [ "$rc" != 0 ] && [ ! -e "$STUB_DIR/post.json" ] && ok "tag Ruleset: refused" || bad "tag Ruleset handled (rc=$rc)"
-run RULESETS_LIST="[$HM]" RULESET_77="$HM" HAND_MADE_RULESETS_OVERRIDE='o/r=printer pushes as owner' "${SIX[@]}" bash "$BIN/apply.sh" o/r --replace-hand-made
+run RULESETS_LIST="[$HM]" RULESET_77="$HM" HAND_MADE_RULESETS_OVERRIDE='o/r=kept for a reason' "${SIX[@]}" bash "$BIN/apply.sh" o/r --replace-hand-made
 [ "$rc" != 0 ] && [ ! -e "$STUB_DIR/post.json" ] && [ ! -e "$STUB_DIR/ruleset_delete_77" ] \
   && ok "recorded hand-made exception: refused" || bad "replaced a recorded exception (rc=$rc)"
 
@@ -271,15 +269,14 @@ grep -qE '✗.*main-protection' <<<"$out" && bad "fork on classic flagged" || ok
 
 echo "audit.sh, hand-made Ruleset"
 # It used to pass on sight: 'hand-made' meant 'has a reason', and only its CICD
-# bypass mode was checked. On 2026-11-12 that hid gpu-batch and skills
-# (1 approval + Admin always-bypass: every agent session merges past review),
-# neptune (Admin always-bypass) and reloader (no PR rule at all).
+# bypass mode was checked -- approvals, role bypasses and a missing PR rule
+# went unchecked (2026-11-12).
 HAND='{"id":77,"name":"main","enforcement":"active","bypass_actors":[],"rules":[{"type":"deletion"},{"type":"non_fast_forward"}]}'
 aud "$HAND"
 grep -qE '✗.*main-protection.*hand-made: main' <<<"$out" && ok "hand-made Ruleset is ✗, named" || bad "hand-made Ruleset not flagged"
-aud "$HAND" HAND_MADE_RULESETS_OVERRIDE='o/r=printer pushes as owner'
+aud "$HAND" HAND_MADE_RULESETS_OVERRIDE='o/r=kept for a reason'
 grep -q '✗' <<<"$out" && bad "recorded hand-made exception flagged" || ok "recorded hand-made exception passes"
-grep -qE 'hand-made.*printer pushes as owner' <<<"$out" && ok "says why it is an exception" || bad "exception reason not shown"
+grep -qE 'hand-made.*kept for a reason' <<<"$out" && ok "says why it is an exception" || bad "exception reason not shown"
 for r in gateway-services neptune-4pro-klipper-backup; do
   grep -qE "^\s*\[dvystrcil/$r\]=" "$BIN/solo-ruleset.sh" && ok "$r is a recorded exception" || bad "$r exception missing"
 done

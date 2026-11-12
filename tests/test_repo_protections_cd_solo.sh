@@ -51,6 +51,7 @@ case "$args" in
     echo "$RULESETS_LIST" | jq -r "${args#api repos/o/r/rulesets --jq }" ;;
   "api repos/o/r/rulesets")    echo "$RULESETS_LIST" ;;
   "api repos/o/r/rulesets/77") echo "$RULESET_77" ;;
+  "api repos/o/r/rulesets/78") echo "$RULESET_78" ;;
   *"-X POST"*"repos/o/r/rulesets"*)
     [ -n "${POST_FAIL:-}" ] && { cat >/dev/null; echo '{"message":"Validation Failed","status":"422"}'; exit 1; }
     cat > "$STUB_DIR_OUT/post.json"; echo '{"id":99}' ;;
@@ -100,6 +101,18 @@ run RULESETS_LIST="[$(rs "[$IU]" 1 main)]" RULESET_77="$(rs "[$IU]" 1 main)" bas
 [ ! -e "$STUB_DIR/post.json" ] && ok "does not create a duplicate Ruleset" || bad "POSTed a second Ruleset"
 [ -s "$STUB_DIR/put.json" ] && payload_checks "$STUB_DIR/put.json" "PUT"
 
+echo "apply.sh, a repo added to IU_WRITEBACK_REPOS after it got the solo Ruleset"
+# glance (2026-11-12): protected as a plain repo first, then listed. A second
+# Ruleset beside main-protection would not help: Rulesets stack, and IU has
+# no bypass in main-protection, so its push stays blocked.
+rm -f "$STUB_DIR"/post.json "$STUB_DIR"/put.json
+run RULESETS_LIST="[$(rs '[]' 0 main-protection)]" RULESET_77="$(rs '[]' 0 main-protection)" bash "$BIN/apply.sh" o/r
+[ -s "$STUB_DIR/put.json" ] && ok "converts main-protection (id 77) in place" || bad "did not PUT to main-protection (rc=$rc)"
+[ ! -e "$STUB_DIR/post.json" ] && ok "no second Ruleset beside it" || bad "POSTed a second Ruleset"
+[ -s "$STUB_DIR/put.json" ] && payload_checks "$STUB_DIR/put.json" "convert"
+[ "$(jq -r .name "$STUB_DIR/put.json" 2>/dev/null)" = main-protection-with-iu-bypass ] \
+  && ok "renamed to main-protection-with-iu-bypass" || bad "name $(jq -r .name "$STUB_DIR/put.json" 2>/dev/null)"
+
 echo "audit.sh, CD repo"
 audit_line() { run RULESETS_LIST="[$(rs "$1" "$2" "${3:-main-protection-with-iu-bypass}")]" RULESET_77="$(rs "$1" "$2" "${3:-main-protection-with-iu-bypass}")" bash "$BIN/audit.sh" o/r; }
 
@@ -118,5 +131,12 @@ grep -qE '✗.*CICD' <<<"$out" && ok "CICD pull_request bypass is ✗ (not part 
 
 audit_line "[$ADM]" 0
 grep -qE '✗.*IU bypass' <<<"$out" && ok "no IU bypass is ✗" || bad "missing IU bypass not flagged"
+
+echo "audit.sh, CD repo with a second Ruleset that IU can't bypass"
+rs78() { rs "$1" 0 "$2" | jq -c '.id = 78'; }
+run RULESETS_LIST="[$(rs "[$IU]" 0),$(rs78 '[]' main-protection)]" RULESET_77="$(rs "[$IU]" 0)" RULESET_78="$(rs78 '[]' main-protection)" bash "$BIN/audit.sh" o/r
+grep -qE '✗.*main-protection.*blocks IU' <<<"$out" && ok "a Ruleset without the IU bypass is ✗ (Rulesets stack)" || bad "blocking second Ruleset not flagged"
+run RULESETS_LIST="[$(rs "[$IU]" 0),$(rs78 "[$IU]" tags)]" RULESET_77="$(rs "[$IU]" 0)" RULESET_78="$(rs78 "[$IU]" tags)" bash "$BIN/audit.sh" o/r
+grep -q '✗' <<<"$out" && bad "second Ruleset WITH the IU bypass flagged" || ok "a second Ruleset that IU bypasses passes"
 
 [ "$fail" -eq 0 ] && echo "PASS" || { echo "FAILED"; exit 1; }

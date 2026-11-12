@@ -48,6 +48,43 @@ if [ -n "${DIRECT_PUSH_APPS_OVERRIDE:-}" ]; then
   DIRECT_PUSH_APPS[${DIRECT_PUSH_APPS_OVERRIDE%%=*}]="$(tr ',' ' ' <<<"${DIRECT_PUSH_APPS_OVERRIDE#*=}")"
 fi
 
+# CD repos: every repo argocd-image-updater pushes to (git write-back). These
+# get the IU-bypass Ruleset instead of the solo one. apply.sh and audit.sh
+# decide CD-ness from THIS list only.
+#
+# It used to be "has an image-updater/ directory", which was wrong both ways
+# (audit --all, 2026-11-11): kroger-mcp-docker and syncthing hold their IU CR
+# but IU writes to kroger-mcp and syncthing-chart, so they were audited as CD,
+# got neither Ruleset and sat unprotected; cloudflare, syncthing-chart and
+# trilium-notes are targets with no directory, so apply.sh would have dropped
+# their IU bypass. The source of truth is the live CRs: each
+# writeBackConfig.gitConfig.repository with method git. `iu-targets.sh` diffs
+# this list against them -- run it after adding or removing an ImageUpdater.
+# Read from the cluster 2026-11-11 (37 CRs, 37 repos).
+IU_WRITEBACK_REPOS=(
+  dvystrcil/argocd-mcp dvystrcil/bentopdf dvystrcil/cloudflare dvystrcil/cluster-ops
+  dvystrcil/coder dvystrcil/deco-exporter dvystrcil/filebrowser-quantum dvystrcil/homepage
+  dvystrcil/immich dvystrcil/infisical dvystrcil/invidious dvystrcil/jellyfin
+  dvystrcil/kroger-mcp dvystrcil/language-tool dvystrcil/mcp-server dvystrcil/mealie
+  dvystrcil/mealie-mcp dvystrcil/n8n-workflow dvystrcil/nscale-calc dvystrcil/ollama
+  dvystrcil/open-terminal dvystrcil/open-webui dvystrcil/quartz-viewer dvystrcil/rpg-dice-mcp
+  dvystrcil/searxng dvystrcil/searxng-mcp dvystrcil/string-tools dvystrcil/sweep-mcp
+  dvystrcil/syncthing-chart dvystrcil/tailscale dvystrcil/tinysearch-mcp dvystrcil/tor-character-mcp
+  dvystrcil/tor-dice dvystrcil/trilium-notes dvystrcil/tuber dvystrcil/wallos
+  dvystrcil/wiki-mcp
+)
+# Tests: IU_WRITEBACK_REPOS_OVERRIDE='o/r o/s' replaces the list (set but empty = no CD repos).
+if [ -n "${IU_WRITEBACK_REPOS_OVERRIDE+set}" ]; then
+  read -ra IU_WRITEBACK_REPOS <<<"$IU_WRITEBACK_REPOS_OVERRIDE"
+fi
+
+# is_iu_writeback_repo <owner/repo>: exact match against IU_WRITEBACK_REPOS.
+is_iu_writeback_repo() {
+  local r
+  for r in "${IU_WRITEBACK_REPOS[@]}"; do [ "$r" = "$1" ] && return 0; done
+  return 1
+}
+
 # unexemptable_apps <owner/repo>: listed ids GitHub won't take as a bypass.
 unexemptable_apps() {
   direct_push_apps "$1" | jq -r --argjson gha "$GHA_INTEGRATION_ID" '[.[] | select(. == $gha)] | join(" ")'

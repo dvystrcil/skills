@@ -41,7 +41,9 @@ jqf() { if [[ "$args" == *" --jq "* ]]; then jq -r "${args#* --jq }"; else cat; 
 case "$args" in
   "api repos/o/r")
     jq -nc --arg v "${VIS:-private}" --arg f "${FORK:-false}" --arg l "${LIC:-MIT}" '{default_branch:"main",visibility:$v,allow_merge_commit:false,allow_squash_merge:true,allow_rebase_merge:true,delete_branch_on_merge:true,allow_auto_merge:false,has_issues:true,fork:($f=="true"),license:{spdx_id:$l}}' ;;
-  "api repos/o/r/contents/image-updater") echo '{"message":"Not Found"}'; exit 1 ;;
+  # The dir EXISTS but o/r is not in IU_WRITEBACK_REPOS: still a plain repo
+  # (kroger-mcp-docker, syncthing -- their IU writes to another repo).
+  "api repos/o/r/contents/image-updater") echo '[]' ;;
   "api -X PATCH repos/o/r"*) touch "$OUT/patch"; echo '{}' ;;
   "api -X DELETE repos/o/r/branches/main/protection"*) touch "$OUT/classic_delete"; echo '' ;;
   *"-X PUT"*"repos/o/r/branches/main/protection"*) cat > "$OUT/classic_put.json"; echo '{}' ;;

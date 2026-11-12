@@ -21,7 +21,7 @@ cat > "$STUB_DIR/gh" <<'STUB'
 args="$*"
 case "$args" in
   "api repos/o/r")                          echo '{"default_branch":"main","visibility":"public"}' ;;
-  "api repos/o/r/contents/image-updater")   echo '[]' ;;
+  "api repos/o/r/contents/image-updater")   echo '{"message":"Not Found"}'; exit 1 ;;
   "api -X PATCH repos/o/r"*)                echo '{}' ;;
   "api repos/o/r/branches/main/protection") echo '{"message":"Branch not protected"}'; exit 1 ;;
   "api repos/o/r/rulesets --jq"*)           echo '' ;;
@@ -36,7 +36,7 @@ echo "apply.sh (CD repo)"
 # Since the solo CD Ruleset (owner decision 2026-11-10) the CICD App and the
 # admin role are deliberately NOT bypass actors on CD repos -- 0 approvals
 # leaves them nothing to bypass. Full shape: tests/test_repo_protections_cd_solo.sh.
-PAYLOAD_OUT="$STUB_DIR/payload.json" PATH="$STUB_DIR:$PATH" bash "$BIN/apply.sh" o/r >/dev/null 2>&1 \
+IU_WRITEBACK_REPOS_OVERRIDE=o/r PAYLOAD_OUT="$STUB_DIR/payload.json" PATH="$STUB_DIR:$PATH" bash "$BIN/apply.sh" o/r >/dev/null 2>&1 \
   || bad "apply.sh exited non-zero"
 p="$STUB_DIR/payload.json"
 if [ -s "$p" ]; then

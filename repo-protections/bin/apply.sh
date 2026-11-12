@@ -64,10 +64,13 @@ echo "    default branch: $default_branch  (visibility: $visibility)"
 # IU_APP_ID env var overrides the default homelab IU app id (the argocd
 # repo-creds secret labeled argocd.argoproj.io/secret-type=repo-creds).
 IU_APP_ID="${IU_APP_ID:-378815}"
+#
+# CD-ness comes from IU_WRITEBACK_REPOS (solo-ruleset.sh), not from an
+# image-updater/ directory -- see the comment there.
 is_cd_repo=0
-if gh api "repos/$REPO/contents/image-updater" >/dev/null 2>&1; then
+if is_iu_writeback_repo "$REPO"; then
   is_cd_repo=1
-  echo "    DETECTED: image-updater/ directory — treating as CD repo (will use Ruleset, not Branch Protection)"
+  echo "    CD repo (in IU_WRITEBACK_REPOS): IU-bypass Ruleset"
 fi
 
 # --- Repo-level settings ---

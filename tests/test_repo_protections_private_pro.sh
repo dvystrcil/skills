@@ -22,7 +22,7 @@ fail=0
 ok()  { echo "  ok   $1"; }
 bad() { echo "  FAIL $1"; [ -n "${out:-}" ] && echo "$out" | sed 's/^/    | /'; fail=1; }
 
-# Stub gh. CD=1 makes image-updater/ exist. RULESETS: pro403 | empty.
+# Stub gh. IU_WRITEBACK_REPOS_OVERRIDE=o/r makes o/r CD (the dir stub answers the opposite). RULESETS: pro403 | empty.
 # CLASSIC_PUT: ok | pro403. Every other contents/license probe is "missing".
 cat > "$STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -38,7 +38,7 @@ case "$args" in
   "api repos/o/r")
     echo '{"default_branch":"main","visibility":"private","allow_merge_commit":false,"allow_squash_merge":true,"allow_rebase_merge":true,"delete_branch_on_merge":true,"allow_auto_merge":false,"has_issues":true,"fork":false}' ;;
   "api repos/o/r/contents/image-updater")
-    [ "${CD:-0}" = 1 ] && echo '[]' || { echo '{"message":"Not Found"}'; exit 1; } ;;
+    [ "${IU_WRITEBACK_REPOS_OVERRIDE:-}" = o/r ] && { echo '{"message":"Not Found"}'; exit 1; } || echo '[]' ;;  # dir says the OPPOSITE of the list
   "api -X PATCH repos/o/r"*) echo '{}' ;;
   "api repos/o/r/branches/main/protection"*)
     [ "${RULESETS:-}" = pro403 ] && pro403
@@ -71,37 +71,37 @@ run() {  # env assignments..., then the command; sets $out and $rc
 }
 
 echo "apply.sh"
-run CD=0 RULESETS=pro403 bash "$BIN/apply.sh" o/r
+run IU_WRITEBACK_REPOS_OVERRIDE= RULESETS=pro403 bash "$BIN/apply.sh" o/r
 [ "$rc" != 0 ] && ok "non-CD private + 403: exits non-zero" || bad "non-CD private + 403 exited 0"
 grep -q 'n/a' <<<"$out" && bad "non-CD private + 403 still says n/a" || ok "non-CD private + 403: no 'n/a'"
 
-run CD=1 RULESETS=pro403 bash "$BIN/apply.sh" o/r
+run IU_WRITEBACK_REPOS_OVERRIDE=o/r RULESETS=pro403 bash "$BIN/apply.sh" o/r
 [ "$rc" != 0 ] && ok "CD private + 403: exits non-zero" || bad "CD private + 403 exited 0"
 grep -q 'SKIPPED' <<<"$out" && bad "CD private + 403 still says SKIPPED" || ok "CD private + 403: not SKIPPED"
 
-run CD=0 RULESETS=empty RULESET_POST=pro403 bash "$BIN/apply.sh" o/r
+run IU_WRITEBACK_REPOS_OVERRIDE= RULESETS=empty RULESET_POST=pro403 bash "$BIN/apply.sh" o/r
 [ "$rc" != 0 ] && ok "private Ruleset POST 403: exits non-zero" || bad "private Ruleset POST 403 exited 0"
 
 # Private non-CD repos get the solo Ruleset, not classic protection
 # (test_repo_protections_solo_plain.sh covers its shape).
-run CD=0 RULESETS=empty CLASSIC_PUT=ok bash "$BIN/apply.sh" o/r
+run IU_WRITEBACK_REPOS_OVERRIDE= RULESETS=empty CLASSIC_PUT=ok bash "$BIN/apply.sh" o/r
 [ "$rc" = 0 ] && grep -q 'Ruleset created' <<<"$out" \
   && ok "private, Pro works: solo Ruleset created (regression guard)" \
   || bad "private happy path broke"
 
 echo "audit.sh"
-run CD=0 RULESETS=pro403 bash "$BIN/audit.sh" o/r
+run IU_WRITEBACK_REPOS_OVERRIDE= RULESETS=pro403 bash "$BIN/audit.sh" o/r
 grep -q 'n/a (private' <<<"$out" && bad "non-CD private + 403 audited as n/a" || ok "non-CD private + 403: not n/a"
 grep -qE '✗.*(branch protection|Ruleset main-protection)' <<<"$out" && ok "non-CD private + 403: protection is ✗" || bad "non-CD private + 403 not flagged"
 
-run CD=0 RULESETS=empty bash "$BIN/audit.sh" o/r
+run IU_WRITEBACK_REPOS_OVERRIDE= RULESETS=empty bash "$BIN/audit.sh" o/r
 grep -qE '✗.*(branch protection|Ruleset main-protection)' <<<"$out" && ok "private, unprotected: protection is ✗" || bad "private unprotected repo not flagged"
 
-run CD=1 RULESETS=pro403 bash "$BIN/audit.sh" o/r
+run IU_WRITEBACK_REPOS_OVERRIDE=o/r RULESETS=pro403 bash "$BIN/audit.sh" o/r
 [ "$rc" != 0 ] && ok "CD private + 403: audit exits non-zero" || bad "CD private + 403 audit exited 0"
 grep -q 'n/a (private' <<<"$out" && bad "CD private + 403 audited as n/a" || ok "CD private + 403: not n/a"
 
-run CD=0 RULESETS=empty bash "$BIN/audit.sh" --all
+run IU_WRITEBACK_REPOS_OVERRIDE= RULESETS=empty bash "$BIN/audit.sh" --all
 if grep -q -- '--visibility public' "$REPO_LIST_ARGS" 2>/dev/null; then
   bad "--all still lists only public repos: $(cat "$REPO_LIST_ARGS")"
 else

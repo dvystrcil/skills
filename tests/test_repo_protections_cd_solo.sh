@@ -40,7 +40,8 @@ args="$*"
 case "$args" in
   "api repos/o/r")
     echo '{"default_branch":"main","visibility":"private","allow_merge_commit":false,"allow_squash_merge":true,"allow_rebase_merge":true,"delete_branch_on_merge":true,"allow_auto_merge":false,"has_issues":true,"fork":false}' ;;
-  "api repos/o/r/contents/image-updater") echo '[]' ;;
+  # No image-updater/ dir: CD-ness comes from the list (cloudflare, syncthing-chart, trilium-notes).
+  "api repos/o/r/contents/image-updater") echo '{"message":"Not Found"}'; exit 1 ;;
   "api -X PATCH repos/o/r"*) echo '{}' ;;
   "api -X DELETE repos/o/r/branches/main/protection"*) touch "$STUB_DIR_OUT/classic_delete"; echo '' ;;
   "api repos/o/r/branches/main/protection"*)
@@ -63,6 +64,7 @@ esac
 STUB
 chmod +x "$STUB_DIR/gh"
 export PATH="$STUB_DIR:$PATH" STUB_DIR_OUT="$STUB_DIR"
+export IU_WRITEBACK_REPOS_OVERRIDE=o/r   # o/r is an IU write-back target
 
 run() { set +e; out=$(env "$@" 2>&1); rc=$?; set -e; }
 payload_checks() {  # file label

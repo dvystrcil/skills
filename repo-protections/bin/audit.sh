@@ -177,8 +177,10 @@ audit_one() {
 
   # Detect CD repos (image-updater writeback targets) — branch protection
   # there blocks the IU controller's git push. See feedback_cd_repos_must_not_be_branch_protected.
+  # CD-ness comes from IU_WRITEBACK_REPOS (solo-ruleset.sh), not from an
+  # image-updater/ directory -- see the comment there.
   local is_cd_repo=0
-  if gh api "repos/$repo/contents/image-updater" >/dev/null 2>&1; then
+  if is_iu_writeback_repo "$repo"; then
     is_cd_repo=1
   fi
 

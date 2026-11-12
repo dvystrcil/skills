@@ -225,7 +225,11 @@ Repos that argocd-image-updater pushes to directly (`writeBackConfig.gitConfig.r
 - **Humans and agents** still go through PRs (no direct push, no force-push, no deletion)
 - **IU controller** pushes directly to main via its GitHub App authentication
 
-`apply.sh` and `audit.sh` both detect CD repos by looking for an `image-updater/` directory at the repo root. When present:
+`apply.sh` and `audit.sh` both treat a repo as CD **only if it is in `IU_WRITEBACK_REPOS`** (`repo-protections/bin/solo-ruleset.sh`): every repo a live ImageUpdater CR names as `writeBackConfig.gitConfig.repository` with method `git`. Having an `image-updater/` directory means nothing. That heuristic was wrong both ways (2026-11-11): kroger-mcp-docker and syncthing hold their IU CR but IU writes to kroger-mcp and syncthing-chart, so they were audited as CD, got neither Ruleset and sat **unprotected**; cloudflare, syncthing-chart and trilium-notes are targets with no directory, so `apply.sh` would have dropped their IU bypass and broken image updates.
+
+**After adding or removing an ImageUpdater, run `repo-protections/bin/iu-targets.sh`** (needs kubectl on the IU cluster). It diffs the list against the live CRs and exits non-zero on any difference, naming each repo. Fix the list in a PR, then run `apply.sh` on the repos it named. A target missing from the list fails closed: `apply.sh` gives it the solo Ruleset, and IU's push is rejected with `GH013` until the list is fixed.
+
+For a repo in the list:
 
 - `apply.sh` creates (or updates) a Ruleset named `main-protection-with-iu-bypass` with rules:
   - `deletion` (no branch delete)
@@ -236,16 +240,14 @@ Repos that argocd-image-updater pushes to directly (`writeBackConfig.gitConfig.r
 
   **Why this shape (owner decision 2026-11-10, after GitHub Pro).** The previous CD Ruleset required 1 approval and listed **Repository admin (`always`)** and **the CICD App (`pull_request`)** as bypass actors. A solo owner can't approve their own PR, so every merge went through the admin bypass — and `always` also let the owner's credential, which every agent session uses, push straight to `main`. With 0 approvals neither bypass has a job: the owner merges normally, and homelab's auto-merge gate succeeds on its first, plain `gh pr merge` (D-037 only reaches for `--admin` after a plain merge is refused as a policy block). This is the same solo shape as homelab's `main-protection`, plus the one actor that genuinely has to push directly.
 
-  **Conversion case:** if a non-CD repo later becomes a CD repo (i.e. the deploy scaffold PR adds `image-updater/` after `apply.sh` had already installed classic Branch Protection), the next `apply.sh` run also strips the stale classic protection. Without that, classic and Ruleset enforce in parallel — classic has no per-actor bypass list, so IU's push fails with `GH006` even though the Ruleset bypass is correct. Burned 2026-05-29 on `dvystrcil/tor-character-mcp` and `dvystrcil/tor-dice`.
+  **Conversion case:** if a non-CD repo later becomes a CD repo (it is added to `IU_WRITEBACK_REPOS` after `apply.sh` had already installed classic Branch Protection), the next `apply.sh` run also strips the stale classic protection. Without that, classic and Ruleset enforce in parallel — classic has no per-actor bypass list, so IU's push fails with `GH006` even though the Ruleset bypass is correct. Burned 2026-05-29 on `dvystrcil/tor-character-mcp` and `dvystrcil/tor-dice`.
 - `audit.sh` finds the CD Ruleset (canonical name, or any Ruleset listing the IU App) and checks it is `active`, has the IU App (matched by id), requires **0** approvals, and has **no** admin and **no** CICD bypass — **and that classic Branch Protection is absent**. On non-CD repos a CICD bypass stays opt-in but never wider than `pull_request` (`always`/`exempt` fails), unless the repo is in `CICD_DIRECT_PUSH_REPOS` with its reason (today only `skills`, whose `rebuild-configmap.yml` pushes to `main`).
 
 This convention was established 2026-05-26 (homelab#238) after the initial "skip protection on CD repos" approach turned out to be unnecessarily permissive. Rulesets give us the protection AND IU's direct-push.
 
 **Identifying the IU app id:** the homelab's argocd-image-updater authenticates via a GitHub App stored in argocd's `creds-*` repo-credentials secret (labeled `argocd.argoproj.io/secret-type=repo-creds`). Decode the `githubAppID` value from base64. For the homelab default it's `378815`.
 
-**Detection edge cases:**
-- A repo with its own `image-updater/` directory IS treated as a CD repo (catches both pure CD repos and mixed-shape `-docker` repos that hold their own IU CR)
-- A repo named as `writeBackConfig.gitConfig.repository` but where the CR lives elsewhere will NOT be auto-detected. If you create such a layout, either move the CR into the CD repo (the canonical distributed-IU pattern) or manually run `apply.sh` with `is_cd_repo=1` mode.
+**Detection edge cases:** none left to remember. Where the IU CR lives doesn't matter, only where it writes: a `-docker` repo holding its own CR is a plain repo unless IU also writes to it.
 
 ## How to use this skill
 

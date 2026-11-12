@@ -571,6 +571,9 @@ data:
       (e.g. `model-testing`), or as separate `LICENSE-CODE.md` + `LICENSE-DOCS.md`
       (e.g. `claude-personal-config`). `audit.sh` accepts NOASSERTION when a
       sibling `LICENSE-{docs,DOCS,CODE,prose}.md` is present — intentional, not drift.
+    - **Deliberately non-MIT** (a recorded owner decision): listed in
+      `LICENSE_EXCEPTIONS` in `bin/audit.sh`, which then wants exactly that
+      license. Today: `vt350` = GPL-3.0 (vt350#130).
     
     ### Required files
     | File | Location | Reason |

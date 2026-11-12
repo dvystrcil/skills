@@ -73,6 +73,13 @@ named `LICENSE` file. **`audit.sh` recognizes both patterns** — if it sees
 a sibling `LICENSE-{docs,DOCS,CODE,prose}.md` it accepts NOASSERTION as
 intentional rather than flagging as drift.
 
+### Deliberately non-MIT repos
+A repo whose license is a recorded owner decision goes in `LICENSE_EXCEPTIONS`
+in `bin/audit.sh`, with the decision it came from. The audit then wants
+exactly that SPDX id: drifting away from it is still a ✗. Today:
+`dvystrcil/vt350` = GPL-3.0 (GPL-3.0-or-later for our own work; its
+vendored/remixed parts are GPL-3.0 or CC BY-NC-SA — vt350#130).
+
 **When to dual-license:** any repo where the prose IS the deliverable, or
 where you might want someone to cite the writing without inheriting an MIT
 "software" framing. Repos that are purely code (a script, a Docker image,

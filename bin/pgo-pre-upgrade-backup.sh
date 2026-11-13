@@ -1,157 +1,145 @@
 #!/bin/bash
 # pgo-pre-upgrade-backup.sh
 #
-# Pg_dump a Crunchy PGO cluster's database to NFS as a verified backup.
-# Replaces the manual chain of `kubectl exec → kubectl cp → scp →
-# pg_restore -l` we used to do by hand.
+# Pg_dump one database of a CloudNativePG (CNPG) cluster to the NAS as a
+# verified backup. (The "pgo" in the name is historical: it was written for
+# Crunchy PGO, which was removed on 2026-11-12. homelab#2215 ported it to
+# CNPG and kept the name, which the pgo-pre-upgrade-backup skill and the
+# dvystrcil/skills dispatcher copy call.)
 #
 # === AI/AGENT USAGE METADATA (read me first) ===
 #
-#   purpose       : Take a verified, durable backup of a single Crunchy PGO
-#                   PostgresCluster's database before an upgrade. Backup
-#                   ends up on NFS so it survives node failures and is
-#                   reachable from any pod for restore.
+#   purpose       : Take a verified, durable logical backup (pg_dump -Fc) of
+#                   one database in a CNPG Cluster before an app upgrade.
+#                   The dump lands on the NAS, so it survives the cluster
+#                   and restores into ANY Postgres -- the rollback path for
+#                   app schema migrations (architecture/postgres-upgrade-
+#                   playbook.md).
 #
-#   when_to_use   : Step 3 of the seven-step upgrade process for any tool
-#                   backed by a Crunchy PGO cluster (Harbor, Infisical,
-#                   n8n, OpenWebUI, etc). Run BEFORE bumping the chart
-#                   version of the consuming app.
+#   when_to_use   : Step 3 of the seven-step upgrade process for any app
+#                   whose data lives in a CNPG Cluster (Harbor, Infisical,
+#                   n8n, OpenWebUI, ...). Run BEFORE bumping the app.
 #
 #   when_not_to_use:
-#                 : - Routine ad-hoc backups: PGO already has pgBackRest for
-#                     scheduled backups; this is for upgrade-time gating
-#                     where you want a single named, verified, off-cluster
-#                     dump you can restore from manually.
-#                   - Restore: this script does NOT restore. Restore is
-#                     pg_restore inside the cluster pod, which is a
-#                     destructive operation that should not be wrapped in
-#                     a one-liner. Do that manually with eyes on it.
-#                   - Backing up large clusters in tight maintenance windows:
-#                     pg_dump is single-threaded; for >100 GB clusters,
-#                     prefer pgBackRest's parallel backup machinery.
+#                 : - Routine backups: each Cluster already ships WAL + base
+#                     backups through the barman-cloud plugin. This is the
+#                     upgrade-time, named, verified, off-cluster dump.
+#                   - PG MAJOR upgrades: those are gated on a CNPG Barman
+#                     `Backup` (homelab#2064), not on this dump.
+#                   - Restore: this script does NOT restore. pg_restore is
+#                     destructive; do it by hand with eyes on it.
+#                   - >100 GB databases in a tight window: pg_dump is
+#                     single-threaded and streams through `kubectl exec`.
 #
 #   input         : Two positional args:
-#                     <namespace>     - K8s namespace where the
-#                                       PostgresCluster CR lives.
-#                     <cluster-name>  - The name of the PostgresCluster
-#                                       CR (typically `<app>-postgres`).
+#                     <namespace>     - namespace of the CNPG Cluster.
+#                     <cluster-name>  - the Cluster's name (`<app>-postgres`).
 #                   Optional flags:
-#                     --label <suffix> - Embedded in the dump filename;
-#                                        use to tag a backup ("pre-1.8.0").
-#                                        Defaults to "backup".
+#                     --label <suffix> - embedded in the dump filename
+#                                        ("pre-1.8.0"). Default "backup".
+#                     --db <database>  - required when the cluster holds more
+#                                        than one database.
 #
 #   output        : Stdout: 5 contracted progress lines + trailing 'OK'.
 #                     [1/5] resolving primary pod ............ <pod>
 #                     [2/5] streaming pg_dump ................ <size>
-#                     [3/5] copying out of pod ............... <local-path>
+#                     [3/5] checking dump file ............... <local-path>
 #                     [4/5] verifying TOC .................... <N> entries
 #                     [5/5] uploading to NAS ................. <nfs-path>
 #                     OK
-#                   Stderr: log_info diagnostics, error messages.
+#                   Stderr: error messages.
 #                   Side: a .pgdump file at
 #                     dan@192.168.86.176:/mnt/pool/nfs-storage/pgo-backups/
-#                     <cluster>-<label>-<UTCtimestamp>.pgdump
+#                     <cluster>-<db>-<label>-<timestamp>.pgdump
 #
 #   exit_codes    : 0 on success. Non-zero with a single-line stderr
-#                   message on any of: missing args, no such cluster,
-#                   pg_dump failure, copy failure, TOC verification
-#                   failure (corrupt dump), NFS upload failure, NFS-side
-#                   size mismatch.
+#                   message on: missing args, no such Cluster, no primary,
+#                   ambiguous/unknown database, pg_dump failure, bad magic
+#                   bytes, TOC verification failure, NAS upload failure,
+#                   NAS-side size mismatch.
 #
-#   side_effects  : - kubectl exec pg_dump inside the cluster's primary
-#                     database container (CPU + I/O on that pod).
-#                   - kubectl cp out of the pod into a local mktemp dir
-#                     (cleaned up on EXIT regardless of success/failure).
-#                   - kubectl cp BACK into the pod for TOC verification,
-#                     then rm. The verification path needs pg_restore
-#                     which only exists inside the postgres container.
-#                   - ssh + scp to dan@192.168.86.176 (NFS host) — needs
-#                     ssh-key auth set up beforehand.
-#                   - Idempotent: the timestamp in the filename means
-#                     two consecutive runs produce two distinct files;
-#                     no clobbering or partial-write race.
+#   side_effects  : - `kubectl exec` pg_dump in the primary's `postgres`
+#                     container (CPU + I/O on that pod). The dump streams on
+#                     stdout into a local mktemp dir (removed on EXIT): the
+#                     CNPG pod's /tmp is read-only, so nothing is written in
+#                     the pod and there is no `kubectl cp`.
+#                   - `kubectl exec -i` pg_restore -l, the local file on
+#                     stdin (the host has no pg_restore).
+#                   - ssh + scp to the NAS (ssh-key auth needed).
+#                   - Timestamped filename: reruns never clobber.
 #
-#   requires      : kubectl (read + exec on the namespace), ssh, scp,
-#                   numfmt (optional, used only for the size readout).
-#                   The PostgresCluster's primary pod must be Running.
-#                   The NFS host must accept ssh-key auth from this user.
+#   requires      : kubectl (get clusters.postgresql.cnpg.io + pods, exec),
+#                   ssh, scp; numfmt optional (size readout).
+#                   Connects over the pod's local socket as `postgres` (peer
+#                   auth), like every other CNPG tool in bin/. No Secret is
+#                   read: every prod Cluster has enableSuperuserAccess=false,
+#                   so there is no <cluster>-superuser Secret, and the
+#                   <cluster>-app role cannot read every object.
 #
 #   safe_in_dry_run:
-#                 : No --dry-run flag. The closest equivalent is
-#                   `kubectl get postgrescluster -n <ns> <cluster>` to
-#                   confirm the resource exists and what its primary pod
-#                   selector resolves to.
+#                 : No --dry-run. Closest: `kubectl -n <ns> get pod -l
+#                   cnpg.io/cluster=<c>,cnpg.io/instanceRole=primary`.
 #
 #   composable_with:
-#                 : - homelab/bin/upgrade-validate.sh (Step 6 — run
-#                     immediately after the upgrade, with --label post,
-#                     to confirm the upgrade didn't regress anything).
-#                   - The seven-step upgrade process in
-#                     architecture/upgrade-playbook.md (Step 3 = this).
+#                 : - homelab/bin/upgrade-validate.sh (Step 6).
+#                   - architecture/upgrade-playbook.md (Step 3 = this).
 #
-#   skill_pointer : See ~/.claude/skills/pgo-pre-upgrade-backup/SKILL.md
-#                   for the canonical skill description (Claude Code /
-#                   opencode-readable).
+#   tests         : bin/tests/test_pgo_backup.sh -- hermetic tier in CI; the
+#                   kind tier via lab/cnpg-pre-upgrade-backup/run.sh test.
+#
+#   skill_pointer : dvystrcil/skills claude/pgo-pre-upgrade-backup/SKILL.md
 #
 # === END METADATA ===
-#
-# Usage:
-#   pgo-pre-upgrade-backup.sh <namespace> <cluster-name> [--label <suffix>]
-#
-# Output (machine-parseable contract):
-#   [1/5] resolving primary pod ............ <pod-name>
-#   [2/5] streaming pg_dump ................ <size>
-#   [3/5] copying out of pod ............... <local-path>
-#   [4/5] verifying TOC .................... <toc-entries> entries
-#   [5/5] uploading to NAS ................. <nfs-path>
-#   OK
-#
-# Exit 0 on success; non-zero on any step failure with a clear message.
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/lib/common.sh"
 
-NFS_HOST="dan@192.168.86.176"
-NFS_DIR="/mnt/pool/nfs-storage/pgo-backups"
+# Overridable only so the kind test can point the upload at a local dir.
+NFS_HOST="${PGO_BACKUP_NFS_HOST:-dan@192.168.86.176}"
+NFS_DIR="${PGO_BACKUP_NFS_DIR:-/mnt/pool/nfs-storage/pgo-backups}"
 
 print_usage() {
     cat <<EOF
-Usage: pgo-pre-upgrade-backup.sh <namespace> <cluster-name> [--label <suffix>]
+Usage: pgo-pre-upgrade-backup.sh <namespace> <cluster-name> [--label <suffix>] [--db <database>]
 
-Pg_dump a Crunchy PGO cluster to NFS as a verified backup.
+Pg_dump one database of a CloudNativePG cluster to the NAS as a verified backup.
 
 Args:
-  <namespace>     namespace where the PostgresCluster lives (e.g. infisical)
-  <cluster-name>  name of the PostgresCluster (e.g. infisical-postgres)
+  <namespace>     namespace of the CNPG Cluster (e.g. n8n-workflow)
+  <cluster-name>  name of the CNPG Cluster (e.g. n8n-postgres)
 
 Options:
   --label <suffix>   tag inserted into the dump filename (e.g. pre-1.8.0)
+  --db <database>    database to dump. Required when the cluster holds more
+                     than one (read live from pg_database, so databases made
+                     with plain SQL count); run once per database. The name
+                     is always in the dump filename.
   -h, --help         show this help
 
 Example:
-  pgo-pre-upgrade-backup.sh infisical infisical-postgres --label pre-1.8.0
+  pgo-pre-upgrade-backup.sh n8n-workflow n8n-postgres --label pre-3.0
 
-NFS destination: ${NFS_HOST}:${NFS_DIR}/<cluster>-<label>-<YYYYMMDD-HHMMSS>.pgdump
+NAS destination: ${NFS_HOST}:${NFS_DIR}/<cluster>-<db>-<label>-<YYYYMMDD-HHMMSS>.pgdump
 EOF
 }
 
 # ---- arg parsing ----
 
-# disable -e for the parse loop (we want our own error handling)
 set +e
-
 label=""
+db=""
 positional=()
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help) print_usage; exit 0 ;;
         --label)   label="$2"; shift 2 ;;
         --label=*) label="${1#--label=}"; shift ;;
+        --db)      db="$2"; shift 2 ;;
+        --db=*)    db="${1#--db=}"; shift ;;
         --*)       err "unknown flag: $1" ;;
         *)         positional+=("$1"); shift ;;
     esac
 done
-
 set -e
 
 if [ ${#positional[@]} -lt 1 ]; then
@@ -167,8 +155,6 @@ LABEL=${label:-backup}
 TS=$(date +%Y%m%d-%H%M%S)
 LOCAL_DIR=$(mktemp -d)
 trap 'rm -rf "$LOCAL_DIR"' EXIT
-LOCAL_FILE="$LOCAL_DIR/${CLUSTER}-${LABEL}-${TS}.pgdump"
-NFS_FILE="${NFS_DIR}/${CLUSTER}-${LABEL}-${TS}.pgdump"
 
 require kubectl
 require scp
@@ -176,99 +162,87 @@ require ssh
 
 # ---- step 1: resolve primary pod ----
 
-# Crunchy PGO labels primary pods with role=master in
-# postgres-operator.crunchydata.com group.
+OUT=$(kubectl -n "$NS" get clusters.postgresql.cnpg.io "$CLUSTER" -o name 2>&1) || \
+    err "CNPG Cluster '$CLUSTER' not found in namespace '$NS' (or unauthorized): $OUT"
+
 PRIMARY=$(kubectl -n "$NS" get pod \
-    -l "postgres-operator.crunchydata.com/cluster=${CLUSTER},postgres-operator.crunchydata.com/role=master" \
+    -l "cnpg.io/cluster=${CLUSTER},cnpg.io/instanceRole=primary" \
+    --field-selector=status.phase=Running \
     -o jsonpath='{.items[0].metadata.name}' 2>&1) || \
-    err "could not find PGO primary pod for cluster '$CLUSTER' in namespace '$NS' (NotFound or unauthorized): $PRIMARY"
-[ -n "$PRIMARY" ] || err "no PGO primary pod found for cluster '$CLUSTER' in namespace '$NS'"
+    err "could not list CNPG primary pod for cluster '$CLUSTER' in namespace '$NS': $PRIMARY"
+[ -n "$PRIMARY" ] || err "no Running CNPG primary pod for cluster '$CLUSTER' in namespace '$NS'"
 log_step 1 5 "resolving primary pod" "$PRIMARY"
 
-# ---- step 2: pg_dump in pod ----
+pexec() { kubectl -n "$NS" exec "$PRIMARY" -c postgres -- "$@"; }
 
-# Determine DB name from the cluster spec. PGO's spec.users[].name is the
-# USERNAME; the actual database name(s) live in spec.users[].databases[].
-# They often match (e.g. owui-postgres has user=database=owui) but Harbor
-# differs (user=harbor, database=registry). Prefer databases[0]; fall back
-# to name; final fallback is the cluster name.
-DB_NAME=$(kubectl -n "$NS" get postgrescluster "$CLUSTER" \
-    -o jsonpath='{.spec.users[0].databases[0]}' 2>/dev/null) || true
-if [[ -z "$DB_NAME" ]]; then
-    DB_NAME=$(kubectl -n "$NS" get postgrescluster "$CLUSTER" \
-        -o jsonpath='{.spec.users[0].name}' 2>/dev/null) || true
+# ---- choose the database ----
+
+# argocd-projects#310: a cluster can hold several databases (owui-postgres:
+# owui + homelab_memory). Dumping only the first and saying nothing about the
+# rest made a "verified backup" silently miss data, so fail closed. The list
+# comes from the live pg_database, not the Cluster spec: homelab_memory was
+# made with plain SQL, so neither bootstrap.initdb nor a Database CR names it.
+DBS=$(pexec psql -X -Atq -U postgres -d postgres -c \
+    "select datname from pg_database where datallowconn and not datistemplate and datname <> 'postgres' order by 1" 2>&1) || \
+    err "could not list databases in pod $PRIMARY: $DBS"
+DB_LIST=$(echo $DBS)   # one line, space-separated
+if [ -n "$db" ]; then
+    grep -qxF -- "$db" <<<"$DBS" || \
+        err "cluster '$CLUSTER' has no database '$db' (it holds: ${DB_LIST:-none})"
+    DB_NAME=$db
+else
+    case $(wc -w <<<"$DB_LIST") in
+        0) err "cluster '$CLUSTER' holds no application database" ;;
+        1) DB_NAME=$DB_LIST ;;
+        *) err "cluster '$CLUSTER' holds more than one database ($DB_LIST); pass --db <name>, once per database" ;;
+    esac
 fi
-DB_NAME=${DB_NAME:-$CLUSTER}
+# The database is always in the name: n8n-postgres-n8n-pre-3.0-<ts>.pgdump
+BASE="${CLUSTER}-${DB_NAME}-${LABEL}-${TS}.pgdump"
+LOCAL_FILE="$LOCAL_DIR/$BASE"
+NFS_FILE="${NFS_DIR}/$BASE"
 
-# Run pg_dump inside the database container, write to /tmp inside pod.
-#
-# homelab#405: this used to be `>/dev/null 2>&1`, which swallowed
-# pg_dump's real error on failure -- the only signal was a generic
-# "pg_dump failed" with no indication of *why* (e.g. "terminating
-# connection due to administrator command" on a COPY, which pointed at
-# the actual root cause once visible). Capture stderr only (`2>&1
-# 1>/dev/null` -- order matters: it aliases fd2 to the command-
-# substitution capture, then discards fd1) and fold it into the error.
-POD_TMP="/tmp/pgdump-$$.pgdump"
-PG_DUMP_ERR=$(kubectl -n "$NS" exec "$PRIMARY" -c database -- \
-    pg_dump -U postgres -Fc -d "$DB_NAME" -f "$POD_TMP" 2>&1 1>/dev/null)
-PG_DUMP_RC=$?
+# ---- step 2: stream pg_dump out of the pod ----
+
+# homelab#405: pg_dump's own stderr goes into the error, never /dev/null; it
+# is what told us "terminating connection due to administrator command".
+# `|| RC=$?`: under set -e a bare failing command would exit before the
+# message (found by T8, 2026-11-07). No -t: a TTY would mangle the binary.
+PG_DUMP_RC=0
+pexec pg_dump -U postgres -Fc -d "$DB_NAME" > "$LOCAL_FILE" 2> "$LOCAL_DIR/pg_dump.err" || PG_DUMP_RC=$?
 [ "$PG_DUMP_RC" -eq 0 ] || \
-    err "pg_dump failed inside pod $PRIMARY (db=$DB_NAME): ${PG_DUMP_ERR:-no output captured (rc=$PG_DUMP_RC)}"
+    err "pg_dump failed inside pod $PRIMARY (db=$DB_NAME): $(tr '\n' ' ' < "$LOCAL_DIR/pg_dump.err" | head -c 500) (rc=$PG_DUMP_RC)"
 
-POD_SIZE=$(kubectl -n "$NS" exec "$PRIMARY" -c database -- \
-    stat -c '%s' "$POD_TMP" 2>/dev/null) || err "could not stat dump file inside pod"
-HUMAN_SIZE=$(numfmt --to=iec --suffix=B "$POD_SIZE" 2>/dev/null || echo "${POD_SIZE} bytes")
+SIZE=$(stat -c '%s' "$LOCAL_FILE")
+HUMAN_SIZE=$(numfmt --to=iec --suffix=B "$SIZE" 2>/dev/null || echo "${SIZE} bytes")
 log_step 2 5 "streaming pg_dump" "$HUMAN_SIZE"
 
-# ---- step 3: kubectl cp out ----
+# ---- step 3: check the local file ----
 
-kubectl -n "$NS" cp -c database "$PRIMARY:$POD_TMP" "$LOCAL_FILE" >/dev/null 2>&1 || \
-    err "kubectl cp out of pod failed"
-
-# Clean up the in-pod temp dump immediately (don't leave behind data).
-kubectl -n "$NS" exec "$PRIMARY" -c database -- rm -f "$POD_TMP" >/dev/null 2>&1 || true
-
-# Sanity check the local file
-[ -s "$LOCAL_FILE" ] || err "copied dump file is empty or missing: $LOCAL_FILE"
-
-# Verify magic bytes
+[ -s "$LOCAL_FILE" ] || err "dump file is empty: $LOCAL_FILE"
 MAGIC=$(head -c 5 "$LOCAL_FILE")
-[ "$MAGIC" = "PGDMP" ] || err "copied dump does not start with PGDMP magic bytes (got '$MAGIC')"
+[ "$MAGIC" = "PGDMP" ] || err "dump does not start with PGDMP magic bytes (got '$MAGIC')"
+log_step 3 5 "checking dump file" "$LOCAL_FILE"
 
-log_step 3 5 "copying out of pod" "$LOCAL_FILE"
+# ---- step 4: verify the TOC parses ----
 
-# ---- step 4: verify TOC parses ----
-
-# Round-trip through the postgres pod since the host doesn't have pg_restore.
-VERIFY_PATH="/tmp/verify-$$-${TS}.pgdump"
-kubectl -n "$NS" cp -c database "$LOCAL_FILE" "$PRIMARY:$VERIFY_PATH" >/dev/null 2>&1 || \
-    err "kubectl cp back into pod for verification failed"
-
-TOC_OUT=$(kubectl -n "$NS" exec "$PRIMARY" -c database -- \
-    pg_restore -l "$VERIFY_PATH" 2>&1) || \
+# The host has no pg_restore; feed the local file to the pod's on stdin.
+# A custom-format TOC sits at the head of the file, so -l needs no seeking.
+TOC_OUT=$(kubectl -n "$NS" exec -i "$PRIMARY" -c postgres -- pg_restore -l < "$LOCAL_FILE" 2>&1) || \
     err "pg_restore -l failed: $(echo "$TOC_OUT" | head -1)"
-
-# Clean up verify file
-kubectl -n "$NS" exec "$PRIMARY" -c database -- rm -f "$VERIFY_PATH" >/dev/null 2>&1 || true
-
-TOC_COUNT=$(echo "$TOC_OUT" | grep -cE '^[0-9]+;\s+[0-9]+\s+[0-9]+')
+TOC_COUNT=$(grep -cE '^[0-9]+;\s+[0-9]+\s+[0-9]+' <<<"$TOC_OUT" || true)
 [ "$TOC_COUNT" -gt 0 ] || err "pg_restore -l returned 0 TOC entries — backup likely corrupt"
 log_step 4 5 "verifying TOC" "$TOC_COUNT entries"
 
-# ---- step 5: scp to NFS ----
+# ---- step 5: upload to the NAS ----
 
-# Ensure the NFS directory exists (idempotent).
 ssh -o BatchMode=yes -o ConnectTimeout=5 "$NFS_HOST" "mkdir -p '$NFS_DIR'" >/dev/null 2>&1 || \
-    err "could not prepare NFS dir at ${NFS_HOST}:${NFS_DIR}"
-
+    err "could not prepare NAS dir at ${NFS_HOST}:${NFS_DIR}"
 scp -o BatchMode=yes -o ConnectTimeout=10 -q "$LOCAL_FILE" "${NFS_HOST}:${NFS_FILE}" 2>&1 || \
-    err "scp to NFS failed"
-
-# Confirm size on the NFS side matches.
+    err "scp to NAS failed"
 NFS_SIZE=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$NFS_HOST" "stat -c '%s' '$NFS_FILE'" 2>/dev/null) || \
-    err "could not stat uploaded file on NFS"
-[ "$NFS_SIZE" = "$POD_SIZE" ] || err "NFS file size ($NFS_SIZE) does not match in-pod size ($POD_SIZE)"
+    err "could not stat uploaded file on NAS"
+[ "$NFS_SIZE" = "$SIZE" ] || err "NAS file size ($NFS_SIZE) does not match the dump ($SIZE)"
 
 log_step 5 5 "uploading to NAS" "$NFS_FILE"
 echo "OK"

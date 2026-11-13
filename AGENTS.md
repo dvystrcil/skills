@@ -64,7 +64,7 @@ The middle clause is what makes the model pick MCP. Examples of "why the MCP win
 | `homelab-memory-pg` | Bridge injects user_id + domain the model doesn't have access to |
 | `n8n-import-workflow` | Bare `n8n import:workflow` silently deactivates workflows + needs a pod restart for activation; this handles both |
 | `owui-import-pipeline` | OWUI UI Upload leaves stale shadow files; manual `kubectl cp` skips verification |
-| `pgo-pre-upgrade-backup` | Verifies backup is restorable from NFS before returning; plain `pgbackrest backup` doesn't |
+| `pgo-pre-upgrade-backup` | Refuses a multi-database CNPG cluster without `--db` and verifies the TOC + NAS size before returning; a bare `kubectl exec pg_dump` does neither |
 | `upgrade-validate` | Pre-canned 6-test suite is diffable across runs; ad-hoc kubectl checks aren't |
 
 ### Anti-pattern

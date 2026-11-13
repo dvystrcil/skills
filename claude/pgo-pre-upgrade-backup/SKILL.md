@@ -1,6 +1,6 @@
 ---
 name: pgo-pre-upgrade-backup
-description: Take a verified, durable pg_dump of one database in a CloudNativePG (CNPG) cluster to the NAS before an app upgrade. **Prefer this MCP over a hand-run `kubectl exec ... pg_dump`** — it refuses a multi-database cluster unless you name the database, streams the dump out (the CNPG pod's /tmp is read-only), checks the TOC with `pg_restore -l`, and confirms the NAS copy's size before returning, so a partial or corrupt dump can't pass silently. Use BEFORE bumping any app whose data lives in a CNPG Cluster (the "pgo" in the name is historical).
+description: Take a verified, durable pg_dump of one database in a CloudNativePG (CNPG) cluster to the NAS before an app upgrade. **Prefer this MCP over a hand-run `kubectl exec ... pg_dump`** — it refuses a multi-database cluster unless you name the database, streams the dump out (the CNPG pod's /tmp is read-only), hashes the dump in the pod and re-dumps any copy whose sha256 differs (exec streams here can drop bytes and exit 0), checks the TOC with `pg_restore -l`, and confirms the NAS copy's sha256 before returning, so a partial or corrupt dump can't pass silently. Use BEFORE bumping any app whose data lives in a CNPG Cluster (the "pgo" in the name is historical).
 script: bin/pgo-pre-upgrade-backup.sh
 args:
   - name: namespace
@@ -67,9 +67,9 @@ The timestamp guarantees two consecutive runs produce two distinct files, so it 
 
 1. Primary: `cnpg.io/cluster=<cluster>,cnpg.io/instanceRole=primary`, Running.
 2. Databases: read from the live `pg_database`, not the Cluster spec (owui's `homelab_memory` was created with SQL, so no CR names it). More than one and no `--db` → refused, naming them. `--db` naming one that isn't there → refused.
-3. `pg_dump -Fc` in the `postgres` container as the `postgres` OS user over the local socket. No Secret is read: every Cluster has `enableSuperuserAccess: false`. The dump **streams on stdout** to a local temp dir; nothing is written in the pod.
-4. `PGDMP` magic bytes, then `pg_restore -l` in the pod with the file on stdin.
-5. scp to the NAS, then the NAS-side size must match.
+3. `pg_dump -Fc` in the `postgres` container as the `postgres` OS user over the local socket. No Secret is read: every Cluster has `enableSuperuserAccess: false`. The dump **streams on stdout** to a local temp dir; nothing is written in the pod. The pod hashes what it wrote (`tee | sha256sum` → stderr); a local copy with another sha256, or with no hash, is re-dumped up to `PGO_BACKUP_ATTEMPTS` (default 3) times, `PGO_BACKUP_RETRY_SLEEP` (10 s) apart. `kubectl exec` streams on this cluster can drop bytes and still exit 0 (homelab#2215, homelab#2225), so rc alone proves nothing.
+4. `PGDMP` magic bytes, then `pg_restore -l` in the pod with the file on stdin (the pod drains the rest of stdin, so a dump bigger than a pipe buffer doesn't fail kubectl).
+5. scp to the NAS, then the NAS-side sha256 must match.
 
 ## Output contract
 
@@ -77,7 +77,7 @@ Stdout: 5 step lines + a trailing `OK` on success.
 
 ```
 [1/5] resolving primary pod            n8n-postgres-1
-[2/5] streaming pg_dump                161MB
+[2/5] streaming pg_dump                161MB sha256 812c14303e57… (attempt 1)
 [3/5] checking dump file               /tmp/tmp.XXXX/n8n-postgres-n8n-pre-3.0-20261113-120000.pgdump
 [4/5] verifying TOC                    812 entries
 [5/5] uploading to NAS                 /mnt/pool/nfs-storage/pgo-backups/n8n-postgres-n8n-pre-3.0-20261113-120000.pgdump

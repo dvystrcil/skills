@@ -68,6 +68,9 @@
 #                     re-dumped, up to PGO_BACKUP_ATTEMPTS (default 3) times,
 #                     PGO_BACKUP_RETRY_SLEEP (10 s) apart: exec streams here
 #                     can drop bytes and still exit 0 (homelab#2215).
+#                     The remote shell lingers PGO_BACKUP_DRAIN_SECS (30 s)
+#                     after pg_dump exits, so a slow reader gets the buffered
+#                     tail before kubelet closes the stream (homelab#2225).
 #                   - `kubectl exec -i` pg_restore -l, the local file on
 #                     stdin (the host has no pg_restore).
 #                   - ssh + scp to the NAS (ssh-key auth needed).
@@ -220,9 +223,20 @@ NFS_FILE="${NFS_DIR}/$BASE"
 # homelab#405: pg_dump's own stderr goes into the error, never /dev/null.
 # `|| RC=$?`: under set -e a bare failing command would exit before the
 # message (found by T8, 2026-11-07). No -t: a TTY would mangle the binary.
+#
+# Drain (homelab#2225): the bytes are lost when the remote process EXITS.
+# kubelet then tears the stream down, and whatever is still buffered toward
+# a reader slower than pg_dump is dropped. Measured 2026-11-13 from the laptop
+# (10 Mb/s link): `head -c 20MiB` arrived short 2/2, while
+# `head -c 20MiB; sleep 30` arrived whole 2/2. A fast reader on a CORE host
+# drains as it goes and lost nothing. So the remote shell outlives pg_dump by
+# PGO_BACKUP_DRAIN_SECS and then exits with pg_dump's status. The sha256 check
+# stays: the drain makes success likely, and the hash proves it.
 ATTEMPTS=${PGO_BACKUP_ATTEMPTS:-3}
 RETRY_SLEEP=${PGO_BACKUP_RETRY_SLEEP:-10}
-DUMP_SH="set -o pipefail; { pg_dump -U postgres -Fc -d $(printf %q "$DB_NAME") | tee /dev/fd/4 | sha256sum | sed 's/^/PGB-SHA256 /' >&2; } 4>&1"
+DRAIN_SECS=${PGO_BACKUP_DRAIN_SECS:-30}
+[[ "$DRAIN_SECS" =~ ^[0-9]+$ ]] || err "PGO_BACKUP_DRAIN_SECS must be a whole number of seconds (got '$DRAIN_SECS')"
+DUMP_SH="set -o pipefail; { pg_dump -U postgres -Fc -d $(printf %q "$DB_NAME") | tee /dev/fd/4 | sha256sum | sed 's/^/PGB-SHA256 /' >&2; } 4>&1; rc=\$?; sleep $DRAIN_SECS; exit \$rc"
 why=""
 for attempt in $(seq 1 "$ATTEMPTS"); do
     PG_DUMP_RC=0
@@ -230,7 +244,9 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
     POD_SHA=$(sed -n 's/^PGB-SHA256 \([0-9a-f]\{64\}\).*/\1/p' "$LOCAL_DIR/pg_dump.err" | tail -1)
     LOCAL_SHA=$(sha256sum < "$LOCAL_FILE" | cut -d' ' -f1)
     if [ "$PG_DUMP_RC" -ne 0 ]; then
-        why="pg_dump failed inside pod $PRIMARY (db=$DB_NAME): $(grep -v '^PGB-SHA256 ' "$LOCAL_DIR/pg_dump.err" | tr '\n' ' ' | head -c 500) (rc=$PG_DUMP_RC)"
+        # `|| true`: a pg_dump that dies without a word (OOM kill) leaves
+        # nothing for grep -v, and under pipefail that exited silently (T16).
+        why="pg_dump failed inside pod $PRIMARY (db=$DB_NAME): $({ grep -v '^PGB-SHA256 ' "$LOCAL_DIR/pg_dump.err" || true; } | tr '\n' ' ' | head -c 500) (rc=$PG_DUMP_RC)"
     elif [ -z "$POD_SHA" ]; then
         why="no in-pod sha256 arrived for the dump (the exec stream lost stderr)"
     elif [ "$POD_SHA" != "$LOCAL_SHA" ]; then
@@ -239,7 +255,7 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
         why=""; break
     fi
     echo "  attempt $attempt/$ATTEMPTS: $why" >&2
-    [ "$attempt" -lt "$ATTEMPTS" ] && sleep "$RETRY_SLEEP"
+    if [ "$attempt" -lt "$ATTEMPTS" ]; then sleep "$RETRY_SLEEP"; fi
 done
 [ -z "$why" ] || err "no verified dump after $ATTEMPTS attempts: $why"
 
@@ -271,7 +287,7 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
     TOC_OUT=$(kubectl -n "$NS" exec -i "$PRIMARY" -c postgres -- bash -c "$TOC_SH" < "$LOCAL_FILE" 2>&1) || TOC_RC=$?
     [ "$TOC_RC" -eq 0 ] && break
     echo "  pg_restore -l attempt $attempt/$ATTEMPTS failed (rc=$TOC_RC): $(toc_err)" >&2
-    [ "$attempt" -lt "$ATTEMPTS" ] && sleep "$RETRY_SLEEP"
+    if [ "$attempt" -lt "$ATTEMPTS" ]; then sleep "$RETRY_SLEEP"; fi
 done
 [ "$TOC_RC" -eq 0 ] || err "pg_restore -l failed (rc=$TOC_RC): $(toc_err)"
 TOC_COUNT=$(grep -cE '^[0-9]+;\s+[0-9]+\s+[0-9]+' <<<"$TOC_OUT" || true)

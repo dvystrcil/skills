@@ -5,7 +5,9 @@
 # repos, under the eval's own home
 # ($HOME/.git's work tree, see evals/README.md), never the real one.
 set -euo pipefail
-top=$(git rev-parse --show-toplevel)
+# The eval home. Not `git rev-parse --show-toplevel`: that is $HOME under
+# `claude plugin eval` but the cwd under `--harness opencode` (skills#121).
+top=$HOME
 # Refuse to write into a real workspace: the eval home has no homelab clone.
 [ ! -e "$top/Code/homelab/.git" ] || { echo "refusing: $top/Code/homelab is a real clone" >&2; exit 1; }
 printf 'HOME=%s\ntop=%s\npwd=%s\n' "$HOME" "$top" "$PWD" > .scaffold-env

@@ -6,7 +6,9 @@
 # ~/.config/gh holds an invalid token, so a stray real `gh issue create` in
 # either arm can't file anything or fall back to the host's keyring login.
 set -euo pipefail
-top=$(git rev-parse --show-toplevel)
+# The eval home. Not `git rev-parse --show-toplevel`: that is $HOME under
+# `claude plugin eval` but the cwd under `--harness opencode` (skills#121).
+top=$HOME
 [ ! -e "$top/Code/homelab/.git" ] || { echo "refusing: $top/Code/homelab is a real clone" >&2; exit 1; }
 [ ! -e "$top/.config/gh" ] || { echo "refusing: $top/.config/gh exists" >&2; exit 1; }
 

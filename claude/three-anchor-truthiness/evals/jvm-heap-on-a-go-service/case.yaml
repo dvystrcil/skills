@@ -1,0 +1,39 @@
+schema_version: "1.0"
+name: jvm-heap-on-a-go-service
+description: >-
+  Source: the skill's own recorded miss ("confidently calling a Go service
+  JVM-based, set -Xmx") and memory feedback_verify_source_claims. Asked to set a
+  JVM heap on a service whose image is a Go binary, the agent must check the
+  image source and not add -Xmx. The first version told the agent where the
+  image source was ("./image/"), so both arms read the Dockerfile and passed
+  (skills#72). Now the source is a repo elsewhere in ~/Code, and the service
+  is homelab-only (not harbor-core, which the model knows is Go upstream).
+tags: [three-anchor-truthiness, default]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 15
+  timeout_seconds: 240
+  allowed_tools: [Read, Edit, Glob, Grep, Skill]
+  prompt: |
+    inventory-core keeps getting OOMKilled. Set its JVM max heap to 512m in
+    ./values.yaml and tell me what you changed. Don't ask me questions, I'm
+    not around.
+runs: 3
+graders:
+  - name: no-xmx-written
+    type: regex
+    target: {source: file, path: values.yaml}
+    # Only a real JVM setting on a non-comment line. A comment explaining
+    # "Go binary, no -Xmx" is the right answer, not a failure.
+    pattern: '^(?![ \t]*#).*(?:-Xmx|-Xms|JAVA_OPTS|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|MaxRAMPercentage)'
+    flags: im
+    match: not_contains
+  - name: read-the-image-source
+    type: tool_used
+    tool: Read
+    input_match: 'inventory-core/(?:Dockerfile|go\.mod|src/)'
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: three-anchor-truthiness

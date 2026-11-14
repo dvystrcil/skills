@@ -60,6 +60,12 @@ def discover(repo: Path, skill: str | None, case: str | None, tag: str | None):
             "case": name,
             "bash": "Bash" in (execution.get("allowed_tools") or []),
             "scaffold": bool((spec.get("context") or {}).get("scaffold_script")),
+            # Under ablation a `tool_used: Skill` grader is display-only, so
+            # the score can't show whether the skill loaded. Read it here.
+            "fired_grader": next(
+                (g["name"] for g in spec.get("graders") or []
+                 if g.get("type") == "tool_used" and g.get("tool") == "Skill"),
+                None),
         }
 
 
@@ -82,7 +88,8 @@ def eval_root() -> Path:
     return root
 
 
-def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path) -> dict:
+def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path,
+             keep: bool = False) -> dict:
     model, base_url = MODELS.get(model_alias, (model_alias, None))
     out_json = workdir / f"{c['skill']}--{c['case']}.json"
     cmd = ["claude", "plugin", "eval", str(c["skill_dir"]),
@@ -93,6 +100,8 @@ def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path) -> dict
         cmd.append("--scaffold")
     if runs:
         cmd += ["--runs", str(runs)]
+    if keep:
+        cmd.append("--keep-temp")
     cmd += ["--allow-tools", *BASE_GRANT, *(["Bash"] if c["bash"] else [])]
 
     env = dict(os.environ)
@@ -106,7 +115,8 @@ def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path) -> dict
 
     p = subprocess.run(cmd, env=env, capture_output=True, text=True)
     row = {"skill": c["skill"], "case": c["case"], "with": [], "without": [],
-           "turn_capped": {"with": 0, "without": 0}, "errors": [], "cost_usd": None}
+           "turn_capped": {"with": 0, "without": 0}, "errors": [], "cost_usd": None,
+           "fired": None, "failed_graders": {"with": {}, "without": {}}}
     if not out_json.exists():
         tail = (p.stderr or p.stdout).strip().splitlines()[-1:] or [f"exit {p.returncode}"]
         row["errors"].append(f"no result JSON: {tail[0][:200]}")
@@ -117,6 +127,12 @@ def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path) -> dict
         for arm in ("with", "without"):
             for r in case.get("arms", {}).get(arm, []):
                 row[arm].append(r["score"])
+                for g in r.get("graders") or []:
+                    if g.get("scored", True) and not g.get("passed"):
+                        fg = row["failed_graders"][arm]
+                        fg[g["name"]] = fg.get(g["name"], 0) + 1
+                    if arm == "with" and g.get("name") == c.get("fired_grader"):
+                        row["fired"] = (row["fired"] or []) + [bool(g.get("passed"))]
                 err = r.get("error") or ""
                 if "Reached maximum number of turns" in err:
                     # The model looped to the cap. The eval still graded the
@@ -133,12 +149,12 @@ def mean(xs):
 
 def table(model: str, rows: list[dict]) -> str:
     lines = [f"### {model}", "",
-             "| skill | case | with | without | Δ | note |",
-             "|---|---|---|---|---|---|"]
+             "| skill | case | with | without | Δ | fired | note |",
+             "|---|---|---|---|---|---|---|"]
     for r in rows:
         if r["errors"]:
             err = r["errors"][0].replace("|", "/").replace("\n", " ")
-            lines.append(f"| {r['skill']} | {r['case']} | — | — | — | ERROR: {err} |")
+            lines.append(f"| {r['skill']} | {r['case']} | — | — | — | — | ERROR: {err} |")
             continue
         w, wo = mean(r["with"]), mean(r["without"])
         d = w - wo
@@ -150,7 +166,13 @@ def table(model: str, rows: list[dict]) -> str:
             capped = (f"hit max_turns: with {tc.get('with', 0)}/{len(r['with'])}, "
                       f"without {tc.get('without', 0)}/{len(r['without'])}")
             note = f"{note}; {capped}" if note else capped
-        lines.append(f"| {r['skill']} | {r['case']} | {w:.2f} | {wo:.2f} | {d:+.2f} | {note} |")
+        fired = r.get("fired")
+        fired_s = f"{sum(fired)}/{len(fired)}" if fired is not None else "—"
+        if fired is not None and not any(fired):
+            # The with arm was the base model too: the delta says nothing.
+            never = "skill never fired"
+            note = f"{never}; {note}" if note else never
+        lines.append(f"| {r['skill']} | {r['case']} | {w:.2f} | {wo:.2f} | {d:+.2f} | {fired_s} | {note} |")
     scored = [r for r in rows if not r["errors"]]
     if scored:
         w = mean([mean(r["with"]) for r in scored])
@@ -172,6 +194,9 @@ def main(argv=None) -> int:
     ap.add_argument("--runs", type=int, help="override per-case runs (default: case.runs, 3)")
     ap.add_argument("--repo", type=Path, default=Path(__file__).resolve().parent.parent)
     ap.add_argument("--out", type=Path, help="write <model>.md/.json here")
+    ap.add_argument("--keep", action="store_true",
+                    help="keep raw eval JSON under <out>/raw/<model>/ and the "
+                         "run sandboxes (traces) under the eval root")
     a = ap.parse_args(argv)
 
     cases = list(discover(a.repo, a.skill, a.case, a.tag))
@@ -183,8 +208,13 @@ def main(argv=None) -> int:
     failed = False
     for model in a.model or ["sonnet"]:
         slug = model.replace("/", "_").replace(":", "_")
-        with tempfile.TemporaryDirectory(prefix="skill-evals-run-") as work:
-            rows = [run_case(c, model, a.runs, Path(work)) for c in cases]
+        if a.keep:
+            work = out / "raw" / slug
+            work.mkdir(parents=True, exist_ok=True)
+            rows = [run_case(c, model, a.runs, work, keep=True) for c in cases]
+        else:
+            with tempfile.TemporaryDirectory(prefix="skill-evals-run-") as work:
+                rows = [run_case(c, model, a.runs, Path(work)) for c in cases]
         md = table(model, rows)
         (out / f"{slug}.md").write_text(md)
         (out / f"{slug}.json").write_text(json.dumps(

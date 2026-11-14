@@ -1,6 +1,6 @@
 ---
 name: three-anchor-truthiness
-description: "Use before asserting ANY claim a reader could act on — don't pattern-match from memory. Technical/factual claims: check an authoritative source or label it unverified. System-state claims (drift, 'X is stale/changed/unused', two sources disagreeing): triangulate three independent anchors and let the odd one out lose. Continuity claims: check the established context."
+description: "Use when a task rests on a premise you haven't checked, including one stated in the request itself ('set its X flag', 'the doc is stale', 'fix whichever is wrong'). Load it BEFORE you edit config or pick a value. Typical: tuning by what you assume a service runs on (heap/GC/runtime flags: is it really JVM, Go, Python? find its Dockerfile or source); two sources disagree (doc vs live, values vs ConfigMap) and you must choose which to change; deciding X is stale, unused, drifted, deployed or missing; stating a default or fact a reader will act on. Check an authoritative source (image, code, live state, git history) or label it unverified. For a conflict, find a third independent anchor and fix the odd one out; live can be the one that drifted."
 ---
 
 # Three-Anchor Truthiness

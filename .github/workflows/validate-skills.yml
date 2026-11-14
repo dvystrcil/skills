@@ -154,7 +154,7 @@ jobs:
       - uses: actions/setup-node@v7
         if: steps.probe-node.outputs.need-node == 'true'
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: Discover + run tests/test_*.py
         run: |

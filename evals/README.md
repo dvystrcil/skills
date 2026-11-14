@@ -128,6 +128,36 @@ runs per arm; see `evals/baselines/`.
 | `homelab-secrets/literal-password-in-manifest` | `feedback_secret_manifest_in_repo_is_not_hardening`, libreoffice#1→#2 | password never in a Write/Edit input; no literal in `deployment.yaml`; an `InfisicalSecret` written | 1.00 → 0.33 |
 | `homelab-image-updater/filebrowser-stable-channel` | skill's silent-drop + pre-release gotchas; homepage#33→#34, homelab#1421 | `allowTags` under `commonUpdateSettings`; constraint `1.x-0`; no `spec.namespace` | 1.00 → 0.60 |
 | `git-workflow/fetch-before-editing` | git-workflow rule 0 (2026-08-09: 7 of 8 "fix" PRs were no-ops); `feedback_check_repo_staleness_before_batch_fix` | ran `git fetch`/`pull`; made no commit (the fix was already on `origin/main`) | 0.50 → 0.00 (sonnet; with-skill runs vary, see baseline) |
+| `batch-lane/vt350-refresh-goes-to-lane` | ways-of-working D-038; the skill's "submit, end the turn" | a non-dry-run `gpu-batch-submit.py chain vt350-refresh`; never ran FreeCAD or the local `refresh.sh`; no `sleep`/`kubectl get jobs`; at most one `status` | 1.00 → 0.75; **Opus ×3: 1.00 → 0.75** |
+| `file-issue/follow-up-goes-to-draft-issue` | `project_issue_intake`; the skill's "never bare `gh issue create`" | `draft-issue.py` run (not `--help`/`--dry-run`); no `gh issue create` / `gh api …/issues` | 1.00 → 0.00; **Opus ×3: 1.00 → 0.50** |
+| `change-validation/worker-bump-before-after` | the skill's "post-only checking" anti-pattern; `upgrade-validate` | checks written to a file before the restart (`tool_order`); a `diff` (not `git diff`) | 1.00 → 0.33; **Opus ×3: 1.00 → 0.33** |
+
+Without the skill, Opus failed in the same way each time:
+- **batch-lane:** 2 of 3 runs never found the lane; the third ran FreeCAD in the session first.
+- **file-issue:** none of the 3 runs used `draft-issue.py`.
+- **change-validation:** all 3 checked only after the restart. A sonnet run even wrote a "Before | After"
+  table from one unsaved pre-change `status` call.
+
+**The fixtures look like the real workspace on purpose.** In the first
+batch-lane pilot the stub was the only file in `~/Code`, its docstring said
+"eval", and the arm without the skill found it at once. Now the stubs sit among
+~30 decoy `bin/` scripts and ~25 decoy repos, and each stub's docstring is the
+real script's opening. Each scaffold refuses to run if `~/Code/homelab` in the
+eval home is a real clone.
+
+**What a case can reach (seen in the pilot traces, 2026-11-13):**
+- `~` is the eval home and the cwd is `~/cwd`, so a scaffold can place stubs at
+  `~/Code/homelab/bin/...`.
+- Outbound GitHub is blocked: `gh issue create` got `deny network-outbound
+  api.github.com:443`.
+- `gh` reads `~/.config/gh` from the eval home. The file-issue scaffold puts an
+  invalid token there, so `gh` can't fall back to the host's keyring login.
+- **The host's real home is readable.** A run listed
+  `/home/dan/Code/skills/claude/...`. A skill that names an absolute host path
+  (`pgo-pre-upgrade-backup` names `/home/dan/Code/homelab/bin/...`) would run
+  the **real** script, which drives the prod cluster. `$HOME` has no kubeconfig
+  and the network sandbox should block it, but don't write a case for such a
+  skill until its script can be stubbed.
 
 ### Dropped by AC4 (passed without the skill, or the skill never fired)
 
@@ -137,6 +167,19 @@ runs per arm; see `evals/baselines/`.
 | `secrets-hygiene/configmap-to-secret-is-not-hardening` | 1.00 → 1.00 | The base model already rejects a `stringData:` "hardening" PR |
 | `three-anchor-truthiness/jvm-heap-on-a-go-service` | 1.00 → 1.00 | The base model reads the Dockerfile unprompted. **The skill never fired** |
 | `three-anchor-truthiness/two-versus-one-drift` | 0.67 → 0.67 | **The skill never fired** in either case |
+| `git-workflow/yaml-edit-no-roundtrip` | sonnet: 1.00 → 1.00 | 24 computed edits over a commented `values.yaml` didn't tempt a parser: without the skill, sonnet edited with `perl -i`, kept all comments and quotes, and read the diff before committing. The 2026-07 round-trips were older/local models; worth re-running on qwen |
+| `memory-maintenance/over-budget-index-archive-not-delete` | sonnet: 0.40 → 0.80 | Without the skill, sonnet archived the 40 DONE lines into a separate file, kept every topic file and got under both caps; only the file name (`MEMORY-ARCHIVE.md`) differed. With the skill, it followed `~/.claude/projects/...` into the eval's own config dir, which the sandbox denies, and gave up: a fixture problem, not a skill one |
+
+| `tdd-artifacts/retrofit-guard-must-fail-first` | sonnet: 1.00 → 1.00, twice (prompt with and without "make sure it works") | Every manifest already complies, so a new guard passes at once. Without the skill, sonnet still stripped a limit from one manifest, watched the test fail, and restored it |
+
+The YAML and memory cases are in commit `9191679` of skills#117's branch, and the tdd case in `902a069`.
+
+**Pattern across the kept and dropped cases:** a case discriminates when the
+skill carries knowledge the base model can't derive from the repo: a tool's
+existence (`gpu-batch-submit.py`, `draft-issue.py`) or a procedure the prompt
+doesn't imply (save a baseline before the change). Good-practice rules that a
+strong model already follows (branch first, text-edit YAML, see the guard
+fail, archive instead of delete) score the same either way on sonnet and Opus.
 
 `three-anchor-truthiness` not triggering on its own two textbook scenarios is
 a finding in its own right. Its description is about *asserting claims*, but
@@ -205,7 +248,11 @@ Compare a later run against these files: `bin/skill-evals.py --tag default
 - **AC5 (CI on PRs touching `claude/*/SKILL.md`)**: the runner needs a Claude
   credential and a host whose sandbox can nest user namespaces. Neither is on
   `skills-runner` today. Follow-up.
-- **More cases toward 10–20 (AC2)**: Bash cases run now. Next candidates:
-  `batch-lane` (submit, don't run in-session), `file-issue` (hand drafting to
-  `bin/draft-issue.py`), `change-validation`, and `git-workflow`'s YAML
-  round-trip rule.
+- **More cases toward 10–20 (AC2)**: 6 kept so far. Candidates by the pattern
+  above (knowledge-carrying skills): `n8n-import-workflow`,
+  `owui-import-pipeline`, `upgrade-validate`, `pgo-pre-upgrade-backup`. Each
+  wraps a script that drives the prod cluster, so each needs its script stubbed
+  in the eval home first. Their SKILL.md names absolute host paths, which the
+  eval can read (see above), so a stub alone isn't enough. Also
+  `three-anchor-truthiness`, once its description triggers on tasks (skills#72
+  part 3).

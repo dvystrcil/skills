@@ -203,6 +203,69 @@ class SkillEvalsRunner(unittest.TestCase):
         self.assertRegex(table, r"needs-bash \| 0\.00 \| 0\.20 \| -0\.20 \| .*hit max_turns: with 3/3, without 2/3")
         self.assertNotRegex(table, r"needs-bash \|.*ERROR")
 
+    def _with_skill_grader(self, fired: list[bool], without_failed=()):
+        """no-bash gets a `tool_used: Skill` grader; canned runs report it.
+
+        Under ablation that grader is display-only (`scored: false`), so the
+        score cannot show whether the skill loaded. skills#72: the
+        three-anchor cases scored the same either way and the only way to
+        learn the skill had never fired was to dig the raw JSON out by hand.
+        """
+        case_yaml = self.repo / "claude/homelab-secrets/evals/no-bash/case.yaml"
+        case_yaml.write_text(case_yaml.read_text() + (
+            "  - {name: skill-fired, type: tool_used, tool: Skill,"
+            " input_match: homelab-secrets}\n"))
+        res = result("no-bash", [1] * len(fired), [0.5] * len(fired))
+        for run, f in zip(res["cases"][0]["arms"]["with"], fired):
+            run["graders"] = [
+                {"name": "g", "passed": True, "scored": True},
+                {"name": "skill-fired", "passed": f, "withOnly": True, "scored": False}]
+        for run in res["cases"][0]["arms"]["without"]:
+            run["graders"] = [{"name": "g", "passed": "g" not in without_failed,
+                               "scored": True}]
+        self.results.write_text(json.dumps({
+            "needs-bash": result("needs-bash", [1], [0]), "no-bash": res}))
+
+    def test_table_reports_how_often_the_skill_fired(self):
+        self._with_skill_grader([True, False, True])
+        _, _, out = self.run_runner("--model", "sonnet")
+        table = (out / "sonnet.md").read_text()
+        self.assertRegex(table, r"no-bash \| 1\.00 \| 0\.50 \| \+0\.50 \| 2/3 \|")
+        # A case with no Skill grader can't say; it must not claim 0/N.
+        self.assertRegex(table, r"needs-bash \| 1\.00 \| 0\.00 \| \+1\.00 \| — \|")
+        data = json.loads((out / "sonnet.json").read_text())
+        row = next(c for c in data["cases"] if c["case"] == "no-bash")
+        self.assertEqual(row["fired"], [True, False, True])
+
+    def test_skill_that_never_fired_is_flagged(self):
+        # Equal or not, a with-arm score where the skill never loaded is the
+        # base model twice: it says nothing about the skill.
+        self._with_skill_grader([False, False])
+        _, _, out = self.run_runner("--model", "sonnet")
+        self.assertRegex((out / "sonnet.md").read_text(),
+                         r"no-bash \|.*\| 0/2 \| .*skill never fired")
+
+    def test_failed_graders_counted_per_arm(self):
+        # One with-run where skill-fired failed: it must not be counted.
+        self._with_skill_grader([False, True], without_failed=("g",))
+        _, _, out = self.run_runner("--model", "sonnet")
+        row = next(c for c in json.loads((out / "sonnet.json").read_text())["cases"]
+                   if c["case"] == "no-bash")
+        # Display-only graders (skill-fired) are not failures of the run.
+        self.assertEqual(row["failed_graders"], {"with": {}, "without": {"g": 2}})
+
+    def test_keep_preserves_raw_results_and_traces(self):
+        _, calls, out = self.run_runner("--model", "sonnet", "--keep")
+        for c in calls:
+            self.assertIn("--keep-temp", c["argv"])
+        self.assertTrue((out / "raw" / "sonnet" / "git-workflow--needs-bash.json").is_file())
+
+    def test_no_keep_by_default(self):
+        _, calls, out = self.run_runner("--model", "sonnet")
+        for c in calls:
+            self.assertNotIn("--keep-temp", c["argv"])
+        self.assertFalse((out / "raw").exists())
+
     def test_case_filter_and_compact_json_written(self):
         _, calls, out = self.run_runner("--model", "sonnet", "--case", "no-bash")
         self.assertEqual(len(calls), 1)

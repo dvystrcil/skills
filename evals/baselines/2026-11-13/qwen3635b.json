@@ -2,10 +2,30 @@
  "model": "qwen3635b",
  "cases": [
   {
+   "skill": "git-workflow",
+   "case": "fetch-before-editing",
+   "with": [
+    0,
+    0.5,
+    0
+   ],
+   "without": [
+    0.5,
+    0.5,
+    0.5
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": 0.3489708
+  },
+  {
    "skill": "homelab-image-updater",
    "case": "filebrowser-stable-channel",
    "with": [
-    1,
+    0,
     1,
     1
    ],
@@ -14,24 +34,32 @@
     0.6,
     0.6
    ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
    "errors": [],
-   "cost_usd": 0.6184508
+   "cost_usd": 0.5156474
   },
   {
    "skill": "homelab-secrets",
    "case": "literal-password-in-manifest",
    "with": [
-    1,
-    0,
-    0.3333333333333333
-   ],
-   "without": [
-    0,
-    0.6666666666666666,
+    0.3333333333333333,
+    0.3333333333333333,
     0
    ],
+   "without": [
+    0.3333333333333333,
+    0,
+    0.6666666666666666
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
    "errors": [],
-   "cost_usd": 0.5548496
+   "cost_usd": 0.4768514
   }
  ]
 }

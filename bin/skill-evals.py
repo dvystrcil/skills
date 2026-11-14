@@ -63,6 +63,25 @@ def discover(repo: Path, skill: str | None, case: str | None, tag: str | None):
         }
 
 
+def eval_root() -> Path:
+    """Where `claude plugin eval` may create its per-run sandbox roots.
+
+    It uses os.tmpdir(). Under /tmp its bubblewrap sandbox mounts the case cwd,
+    $HOME (incl. the repo the agent commits to) and its own TMPDIR read-only,
+    so every Bash write fails and both arms score alike. Measured 2026-11-13:
+    a write probe got RO on all five paths under /tmp, OK on all five under
+    ~/.cache. Override with SKILL_EVALS_TMPDIR.
+    """
+    override = os.environ.get("SKILL_EVALS_TMPDIR")
+    if override:
+        root = Path(override)
+    else:
+        cache = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+        root = Path(cache) / "skill-evals" / "tmp"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path) -> dict:
     model, base_url = MODELS.get(model_alias, (model_alias, None))
     out_json = workdir / f"{c['skill']}--{c['case']}.json"
@@ -77,6 +96,7 @@ def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path) -> dict
     cmd += ["--allow-tools", *BASE_GRANT, *(["Bash"] if c["bash"] else [])]
 
     env = dict(os.environ)
+    env["TMPDIR"] = str(eval_root())
     if base_url:
         env["ANTHROPIC_BASE_URL"] = base_url
         env["ANTHROPIC_AUTH_TOKEN"] = env.get("OLLAMA_API_KEY", "ollama")

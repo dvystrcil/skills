@@ -44,6 +44,7 @@ STUB = textwrap.dedent(
         f.write(json.dumps({
             "argv": args,
             "base_url": os.environ.get("ANTHROPIC_BASE_URL"),
+            "tmpdir": os.environ.get("TMPDIR"),
         }) + "\n")
     out = args[args.index("--json") + 1]
     case = args[args.index("--case") + 1]
@@ -157,6 +158,33 @@ class SkillEvalsRunner(unittest.TestCase):
         table = (out / "sonnet.md").read_text()
         self.assertRegex(table, r"needs-bash \| .*ERROR.*sandbox required")
         self.assertNotRegex(table, r"needs-bash \| 0\.00 \| 0\.00 \| \+0\.00")
+
+    def test_eval_root_is_kept_out_of_tmp(self):
+        # `claude plugin eval` puts each run's sandbox root under os.tmpdir().
+        # Under /tmp, its bubblewrap sandbox mounts the case cwd, $HOME (and
+        # the repo the agent is meant to commit to) and its own TMPDIR
+        # read-only, so every Bash write fails and both arms score the same.
+        # Measured 2026-11-13 with a write probe: all RO under /tmp, all OK
+        # with TMPDIR under ~/.cache.
+        self.env["TMPDIR"] = "/tmp"
+        self.env["SKILL_EVALS_TMPDIR"] = str(self.tmp / "evalroot")
+        _, calls, _ = self.run_runner("--model", "sonnet")
+        self.assertTrue(calls)
+        for c in calls:
+            self.assertEqual(c["tmpdir"], str(self.tmp / "evalroot"))
+        self.assertTrue((self.tmp / "evalroot").is_dir())
+
+    def test_default_eval_root_is_not_under_tmp(self):
+        # Default: under $XDG_CACHE_HOME (else ~/.cache), never the inherited
+        # TMPDIR. (This test's own scratch dir is itself under /tmp, so it
+        # pins the source of the path, not its prefix.)
+        self.env.pop("SKILL_EVALS_TMPDIR", None)
+        self.env["TMPDIR"] = "/tmp"
+        self.env["XDG_CACHE_HOME"] = str(self.tmp / "cache")
+        _, calls, _ = self.run_runner("--model", "sonnet")
+        self.assertTrue(calls)
+        for c in calls:
+            self.assertEqual(c["tmpdir"], str(self.tmp / "cache" / "skill-evals" / "tmp"))
 
     def test_turn_capped_runs_are_scored_and_counted(self):
         # Hitting max_turns is the model's behaviour (looping), not a broken

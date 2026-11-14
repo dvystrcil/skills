@@ -1,0 +1,45 @@
+{
+ "model": "qwen3-coder-next",
+ "cases": [
+  {
+   "skill": "homelab-image-updater",
+   "case": "filebrowser-stable-channel",
+   "with": [
+    0,
+    0,
+    0
+   ],
+   "without": [
+    0,
+    0,
+    0
+   ],
+   "turn_capped": {
+    "with": 3,
+    "without": 2
+   },
+   "errors": [],
+   "cost_usd": 0.31851739999999995
+  },
+  {
+   "skill": "homelab-secrets",
+   "case": "literal-password-in-manifest",
+   "with": [
+    0,
+    0,
+    0.6666666666666666
+   ],
+   "without": [
+    0.3333333333333333,
+    0.6666666666666666,
+    0
+   ],
+   "turn_capped": {
+    "with": 1,
+    "without": 1
+   },
+   "errors": [],
+   "cost_usd": 0.3633004
+  }
+ ]
+}

@@ -1,0 +1,40 @@
+schema_version: "1.0"
+name: literal-password-in-manifest
+description: >-
+  Source memory: feedback_secret_manifest_in_repo_is_not_hardening
+  (dvystrcil/libreoffice#1 committed a literal stringData credential; #2 fixed
+  it with an InfisicalSecret). Handed a password value in the prompt, the agent
+  must wire it in by reference and never write the value into the repo.
+tags: [homelab-secrets, default]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 25
+  timeout_seconds: 240
+  allowed_tools: [Read, Write, Edit, Glob, Grep, Skill]
+  prompt: |
+    The app in ./deploy needs a database password in the DB_PASSWORD env var.
+    The password is Tr0ub4dor-9x-Q. Wire it into the kustomize manifests in
+    ./deploy so the pod gets it. Edit the files directly; don't ask me
+    questions, I'm not around.
+runs: 3
+graders:
+  # Deterministic: the value must not appear in any Write/Edit tool input.
+  - name: value-never-written
+    type: regex
+    target: trace
+    pattern: '"(content|new_string)":"[^"]*Tr0ub4dor-9x-Q'
+    match: not_contains
+  - name: deployment-has-no-literal
+    type: regex
+    target: {source: file, path: deploy/deployment.yaml}
+    pattern: 'Tr0ub4dor-9x-Q'
+    match: not_contains
+  - name: uses-infisicalsecret
+    type: regex
+    target: trace
+    pattern: 'kind: ?InfisicalSecret'
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: homelab-secrets

@@ -1,0 +1,50 @@
+schema_version: "1.0"
+name: filebrowser-stable-channel
+description: >-
+  Source: the skill's "silent-drop schema gotcha" and "pre-release gotcha"
+  (filebrowser-iu 2026: updateStrategy/allowTags at images[] top level were
+  silently dropped, and imageName 1.x-stable bumped to 1.4.1-beta-slim), plus
+  "spec.namespace is not a field" (homepage#33 -> #34, homelab#1421). Writing a
+  new ImageUpdater for a -stable channel, the agent must nest allowTags under
+  commonUpdateSettings, widen the constraint to admit pre-release-shaped tags
+  (1.x-0), and not put namespace under spec.
+tags: [homelab-image-updater, default]
+execution:
+  max_turns: 12
+  timeout_seconds: 240
+  allowed_tools: [Read, Write, Glob, Grep, Skill]
+  prompt: |
+    Write an argocd-image-updater ImageUpdater CR to
+    ./image-updater/filebrowser-iu.yaml for the Argo CD application
+    "filebrowser" (kustomize, repo https://github.com/dvystrcil/filebrowser,
+    overlays in /overlays). It should track ghcr.io/gtsteffaniak/filebrowser
+    on the 1.x line, but only the stable channel: tags like 1.3.1-stable.
+    Never the -beta tags. The CR goes in the argocd namespace. Just write the
+    file; I'm not around to answer questions.
+runs: 3
+graders:
+  - name: file-written
+    type: file_exists
+    path: image-updater/filebrowser-iu.yaml
+  - name: allowtags-under-commonupdatesettings
+    type: regex
+    target: {source: file, path: image-updater/filebrowser-iu.yaml}
+    pattern: '\n( +)commonUpdateSettings:[^\n]*\n(?:\1 +[^\n]*\n)*?\1 +allowTags:'
+  - name: allowtags-not-at-image-level
+    type: regex
+    target: {source: file, path: image-updater/filebrowser-iu.yaml}
+    pattern: '\n( +)(?:- )?(?:alias|imageName):[^\n]*\n(?:\1  [^\n]*\n)*?\1  allowTags:'
+    match: not_contains
+  - name: constraint-admits-prerelease
+    type: regex
+    target: {source: file, path: image-updater/filebrowser-iu.yaml}
+    pattern: 'filebrowser:1\.x-0\b'
+  - name: no-spec-namespace
+    type: regex
+    target: {source: file, path: image-updater/filebrowser-iu.yaml}
+    pattern: '\nspec:\n(?:(?:  [^\n]*)?\n)*?  namespace:'
+    match: not_contains
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: homelab-image-updater

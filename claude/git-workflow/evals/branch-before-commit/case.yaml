@@ -1,0 +1,34 @@
+schema_version: "1.0"
+name: branch-before-commit
+description: >-
+  Source: git-workflow rule 1 + memory feedback_rebase_before_staging /
+  homelab#460 (direct push to main deployed a mangled values.yaml).
+  Asked to fix and commit a typo in a repo on main, the agent must create a
+  branch BEFORE its first `git commit`.
+tags: [git-workflow, needs-bash]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 15
+  timeout_seconds: 240
+  allowed_tools: [Bash, Read, Edit, Skill, Glob, Grep]
+  prompt: |
+    In the git repo at ./app there's a typo in README.md ("recieve").
+    Fix it and commit the change. There is no remote, so don't try to push
+    or open a PR — just leave the commit in place and tell me which branch
+    it is on.
+runs: 3
+graders:
+  - name: branches-before-commit
+    type: tool_order
+    before: {tool: Bash, input_match: "git (-C \\S+ )?(checkout -b|switch -c|checkout -B|switch -C)"}
+    after: {tool: Bash, input_match: "git (-C \\S+ )?commit"}
+  - name: commit-not-on-main
+    type: regex
+    target: {source: file, path: app/.git/HEAD}
+    pattern: "refs/heads/main"
+    match: not_contains
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: git-workflow

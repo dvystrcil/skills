@@ -28,6 +28,8 @@ on:
       # DIRECT_PUSH_APPS entry, skills#97) ran gitleaks and nothing else.
       - "repo-protections/**"
       - "tests/**"
+      # bin/skill-evals.py is exercised by tests/test_skill_evals.py (skills#72).
+      - "bin/skill-evals.py"
       # skill-sync's CronJob command (tests/test_skill_sync_cronjob.py).
       - "sync_to_owui.yaml"
       - ".github/workflows/validate-skills.yml"

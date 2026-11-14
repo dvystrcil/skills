@@ -1,0 +1,37 @@
+{
+ "model": "qwen3635b",
+ "cases": [
+  {
+   "skill": "homelab-image-updater",
+   "case": "filebrowser-stable-channel",
+   "with": [
+    1,
+    1,
+    1
+   ],
+   "without": [
+    0.6,
+    0.6,
+    0.6
+   ],
+   "errors": [],
+   "cost_usd": 0.6184508
+  },
+  {
+   "skill": "homelab-secrets",
+   "case": "literal-password-in-manifest",
+   "with": [
+    1,
+    0,
+    0.3333333333333333
+   ],
+   "without": [
+    0,
+    0.6666666666666666,
+    0
+   ],
+   "errors": [],
+   "cost_usd": 0.5548496
+  }
+ ]
+}

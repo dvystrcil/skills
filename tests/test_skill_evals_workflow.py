@@ -117,7 +117,7 @@ class SkillEvalsWorkflow(unittest.TestCase):
 
     def test_downloads_are_checksum_verified(self):
         runs = "\n".join(s.get("run", "") for s in self.steps())
-        downloads = re.findall(r"curl [^\n]*-o ", runs)
+        downloads = re.findall(r"curl [^\n]*-o (?!/dev/null)", runs)  # a probe is not a download
         self.assertTrue(downloads)
         self.assertGreaterEqual(runs.count("sha256sum -c"), len(downloads))
 

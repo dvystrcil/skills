@@ -169,6 +169,50 @@ sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1   # restore the de
 Undo it with `sudo rm /etc/apparmor.d/bwrap /etc/apparmor.d/disable/bwrap-userns-restrict`
 followed by `sudo systemctl reload apparmor`.
 
+## CI on PRs (skills#120)
+
+`.github/workflows/skill-evals.yml` runs on a PR that changes a
+`claude/*/SKILL.md` or anything under `claude/*/evals/`. Its steps:
+
+1. **Scope.** `--changed-from origin/main` keeps only the cases of the skills
+   the PR touched. It diffs against the merge base, so commits that landed on
+   `main` after the branch was cut don't count. A PR that touches a skill with
+   no cases passes with "nothing to run".
+2. **Run.** `--harness opencode --model qwen3-coder-next --runs 10`, through
+   the in-cluster Ollama Service (`SKILL_EVALS_OLLAMA_URL`). At about 48 s per
+   run, one case takes about 16 minutes.
+3. **Gate** (`--gate`). A case fails the job with
+   `FAIL: skill X case Y fired k/N or delta <= 0` if the skill never fired in
+   the with arm, or if the with arm doesn't beat the without arm. An errored
+   case also fails.
+4. **Known failures.** `evals/known-failing.txt` lists cases that already fail
+   the rule on the PR model, one `skill/case  reason` per line. They print
+   `KNOWN:` and don't fail the job, so a PR isn't red for a failure it didn't
+   cause. When one passes, the job prints `NOW PASSES: … remove it`. An entry
+   that names no case, or has no reason, is an error, so a typo can't quietly
+   waive nothing.
+
+The table, the gate lines and `--keep` traces go to the job summary and a
+`skill-evals` artifact.
+
+**Claude never runs in CI.** No job passes a Claude model and the workflow
+reads no secret. Claude runs on demand from a local run (see the keep rule
+below), because a CI job would need an API key billed per token.
+
+### Where it runs, and why it's safe to
+
+This job runs an agent with a shell on PR code, in a public repo, on our own
+runner. The containment, and what pins each part:
+
+| Layer | What | Pinned by |
+|---|---|---|
+| Who | PRs from this repo's branches only. A fork PR doesn't run: its `scaffold.sh` is arbitrary shell. To evaluate one, read it, push its branch here, and the PR from that branch runs | `tests/test_skill_evals_workflow.py` |
+| Token | `contents: read`, and checkout doesn't persist the token into `.git/config` | same |
+| Secrets | none; no Anthropic credential; the model is a local alias | same |
+| Runner | `skills-evals-runner` in the `arc-isolated` tier: no RBAC, no SA token, non-root, all capabilities dropped. It is **not** `skills-runner`, the privileged build-tier runner the repo's other CI uses | https://github.com/dvystrcil/argocd-projects/pull/355 |
+| Network | DNS, public internet, the Ollama pod on 11434. No other pod or Service, no apiserver, no LAN | https://github.com/dvystrcil/arc-runners/pull/28, with a kind test |
+| Sandbox | bwrap is off (`SKILL_EVALS_OPENCODE_SANDBOX=0`): the pod is the sandbox, and it holds nothing for bwrap to hide | the workflow |
+
 ## Keep rule (decided 2026-11-14)
 
 Decision: https://github.com/dvystrcil/skills/issues/72#issuecomment-6881730933
@@ -471,9 +515,6 @@ evals/baselines/2026-11-14/qwen3-coder-next.opencode.md /tmp/x/qwen3-coder-next.
   question per skill.
 - **Cases that withhold Bash** measure in part how the model copes without a
   shell (qwen invents shell tools), not only the skill.
-- **AC5 (CI on PRs touching `claude/*/SKILL.md`)**: the runner needs a Claude
-  credential and a host whose sandbox can nest user namespaces. Neither is on
-  `skills-runner` today. Follow-up.
 - **More cases toward 10–20 (AC2)**: 8 kept so far. Candidates by the pattern
   above (knowledge-carrying skills): `n8n-import-workflow`,
   `owui-import-pipeline`, `upgrade-validate`, `pgo-pre-upgrade-backup`. Each
@@ -482,4 +523,7 @@ evals/baselines/2026-11-14/qwen3-coder-next.opencode.md /tmp/x/qwen3-coder-next.
   eval can read (see above), so a stub alone isn't enough.
 - **A should-not-fire case for `three-anchor-truthiness`**, now that its
   description is wider (see above).
-- **Running the evals on PRs (part 4)** needs its own design and issue.
+- **A Claude job on `workflow_dispatch`.** Claude runs on demand locally for
+  now. A CI job would need an API key (billed per token) and a runner whose
+  sandbox can nest user namespaces for `claude plugin eval`'s bwrap; the
+  isolated tier doesn't allow that.

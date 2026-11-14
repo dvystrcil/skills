@@ -30,6 +30,10 @@ on:
       - "tests/**"
       # bin/skill-evals.py is exercised by tests/test_skill_evals.py (skills#72).
       - "bin/skill-evals.py"
+      # ...and bin/opencode_eval.py by tests/test_opencode_eval.py; the eval CI
+      # workflow's safety properties by tests/test_skill_evals_workflow.py (skills#120).
+      - "bin/opencode_eval.py"
+      - ".github/workflows/skill-evals.yml"
       # Eval cases (case.yaml + scaffold.sh) are checked by tests/test_eval_cases.py.
       - "claude/**/evals/**"
       # skill-sync's CronJob command (tests/test_skill_sync_cronjob.py).

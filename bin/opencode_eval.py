@@ -32,7 +32,8 @@ How a case maps onto opencode:
   use variable-width lookbehind, which Python's `re` rejects).
 * **Sandbox.** The agent runs under bwrap: `/` read-only, the run root
   writable, the user's credentials hidden. The model is on Ollama, so the
-  network stays up. SKILL_EVALS_OPENCODE_SANDBOX=0 turns bwrap off (tests only).
+  network stays up. SKILL_EVALS_OPENCODE_SANDBOX=0 turns bwrap off: tests, and CI, where the
+  runner pod is the sandbox (.github/workflows/skill-evals.yml).
 """
 from __future__ import annotations
 

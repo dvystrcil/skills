@@ -1,0 +1,130 @@
+name: skill-evals
+
+# Runs the skill behaviour evals on PRs that change a skill or its eval cases,
+# scoped to the touched skills, on a local model, and fails the PR if a touched
+# skill's case doesn't fire or doesn't beat the no-skill arm (skills#120).
+#
+# Safety: this runs an agent with a shell on PR code, in a PUBLIC repo, on a
+# self-hosted runner. What keeps that contained:
+#   * same-repo PRs only. A fork PR doesn't run (its case.yaml scaffold is
+#     arbitrary shell). To evaluate one, read it, push its branch here, and the
+#     PR from that branch runs; or use workflow_dispatch on the branch.
+#   * runner `skills-evals-runner` lives in the arc-isolated tier: no RBAC, no
+#     SA token, Pod Security baseline, and an egress NetworkPolicy allowing DNS,
+#     the public internet and the Ollama pod only (dvystrcil/arc-runners
+#     isolated/skills-evals-egress.yaml). No LAN, no other cluster service.
+#   * read-only token, not persisted into .git/config; no secrets; no Anthropic
+#     credential. Claude runs on demand from a local run only (README, keep rule).
+#   * the runner pod is the sandbox, so bwrap is off (SKILL_EVALS_OPENCODE_SANDBOX=0):
+#     there is nothing in the pod for it to hide.
+#
+# Tests: tests/test_skill_evals_workflow.py pins every property above.
+
+on:
+  pull_request:
+    paths:
+      - "claude/*/SKILL.md"
+      - "claude/*/evals/**"
+  workflow_dispatch:
+    inputs:
+      skill:
+        description: "Only this skill's cases (blank: every default case)"
+        required: false
+        default: ""
+      runs:
+        description: "Runs per arm"
+        required: false
+        default: "10"
+
+permissions:
+  contents: read
+
+concurrency:
+  # One eval at a time per branch; a new push supersedes the running one.
+  group: skill-evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skill-evals:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: skills-evals-runner
+    # 10 runs per arm is ~16 min per case on qwen3-coder-next (2026-11-14).
+    timeout-minutes: 360
+    env:
+      MODEL: qwen3-coder-next
+      RUNS: ${{ inputs.runs || '10' }}
+      SKILL: ${{ inputs.skill }}
+      BASE_REF: ${{ github.base_ref }}
+      SKILL_EVALS_OLLAMA_URL: http://ollama.ollama.svc
+      SKILL_EVALS_OPENCODE_SANDBOX: "0"
+      OPENCODE_VERSION: 2.3.0
+      OPENCODE_SHA256: fc0f81522aceeabac47693d88389efa2bc517ce74c2c38fd6967819fcc6e4d3b
+      RIPGREP_VERSION: 15.2.0
+      RIPGREP_SHA256: 33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.14'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+
+      - name: Install PyYAML
+        run: |
+          for attempt in 1 2 3; do
+            # --user: the runner is uid 1001 and the tool-cache Python is root-owned.
+            python3 -m pip install --user --quiet pyyaml && exit 0
+            echo "::warning::pip install failed (attempt ${attempt}/3), retrying"
+            sleep $((attempt * 10))
+          done
+          exit 1
+
+      - name: Install opencode and ripgrep (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"; mkdir -p "$bin"; cd "$RUNNER_TEMP"
+          curl -fsSL -o opencode.tgz "https://opencode.ai/files/bin/${OPENCODE_VERSION}/opencode-linux-x64-baseline.tar.gz"
+          echo "${OPENCODE_SHA256}  opencode.tgz" | sha256sum -c
+          tar -xzf opencode.tgz -C "$bin" opencode
+          rg="ripgrep-${RIPGREP_VERSION}-x86_64-unknown-linux-musl"
+          curl -fsSL -o rg.tgz "https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/${rg}.tar.gz"
+          echo "${RIPGREP_SHA256}  rg.tgz" | sha256sum -c
+          tar -xzf rg.tgz --strip-components=1 -C "$bin" "${rg}/rg"
+          echo "$bin" >> "$GITHUB_PATH"
+          "$bin/opencode" --version
+
+      - name: Ollama is reachable
+        run: curl -fsS --max-time 10 "$SKILL_EVALS_OLLAMA_URL/api/version"
+
+      - name: Run the evals
+        run: |
+          set -o pipefail
+          args=(--harness opencode --model "$MODEL" --runs "$RUNS" --tag default
+                --keep --gate --out evals-out)
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            args+=(--changed-from "origin/$BASE_REF")
+          elif [ -n "$SKILL" ]; then
+            args+=(--skill "$SKILL")
+          fi
+          python3 bin/skill-evals.py "${args[@]}" | tee evals-out.log
+
+      - name: Summary
+        if: always()
+        run: |
+          { cat evals-out/*.md 2>/dev/null || true
+            echo; echo '```'; grep -E '^(PASS|FAIL|KNOWN|NOW PASSES):' evals-out.log || true; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: skill-evals
+          path: evals-out
+          if-no-files-found: ignore
+          retention-days: 14

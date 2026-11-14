@@ -294,5 +294,157 @@ class SkillEvalsRunner(unittest.TestCase):
         self.assertEqual(data["cases"][0]["with"], [1, 1, 1])
 
 
+
+def git(repo: Path, *args) -> str:
+    return subprocess.run(["git", "-C", str(repo), *args], check=True,
+                          capture_output=True, text=True).stdout
+
+
+class SkillEvalsGate(unittest.TestCase):
+    """--gate: the pass/fail rule for the CI job on skill PRs (skills#120 AC2).
+
+    A touched skill's case fails if the skill never fired in the with arm, or
+    the with arm does not beat the without arm. Cases already failing on the
+    PR model are listed in evals/known-failing.txt, reported, and not failed,
+    so a PR touching them is not red for a reason it did not cause.
+    """
+    setUp = SkillEvalsRunner.setUp
+    run_runner = SkillEvalsRunner.run_runner
+    _with_skill_grader = SkillEvalsRunner._with_skill_grader
+
+    def known(self, text: str) -> None:
+        (self.repo / "evals").mkdir(exist_ok=True)
+        (self.repo / "evals" / "known-failing.txt").write_text(text)
+
+    def test_case_with_no_delta_fails(self):
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("FAIL: skill homelab-secrets case no-bash fired 0/N or delta <= 0",
+                      p.stdout.replace("fired —", "fired 0/N"))
+        self.assertNotIn("case needs-bash fired", p.stdout)
+
+    def test_case_whose_skill_never_fired_fails_even_with_a_delta(self):
+        self._with_skill_grader([False, False])
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate", "--case", "no-bash")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("FAIL: skill homelab-secrets case no-bash fired 0/2 or delta <= 0",
+                      p.stdout)
+
+    def test_fires_and_beats_without_passes(self):
+        self._with_skill_grader([True, False])
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("PASS: skill homelab-secrets case no-bash", p.stdout)
+
+    def test_errored_case_fails(self):
+        self.results.write_text(json.dumps({
+            "needs-bash": result("needs-bash", [1], [0], error="boom"),
+            "no-bash": result("no-bash", [1], [0])}))
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("FAIL: skill git-workflow case needs-bash errored", p.stdout)
+
+    def test_without_gate_the_rule_is_not_applied(self):
+        p, _, _ = self.run_runner("--model", "sonnet")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertNotIn("FAIL:", p.stdout)
+
+    def test_known_failing_case_is_reported_not_failed(self):
+        self.known("# comment\nhomelab-secrets/no-bash  never fires on qwen (2026-11-14)\n")
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("KNOWN: skill homelab-secrets case no-bash", p.stdout)
+        self.assertIn("never fires on qwen", p.stdout)
+
+    def test_known_failing_case_that_now_passes_says_to_remove_it(self):
+        self.known("git-workflow/needs-bash  was failing\n")
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate", "--case", "needs-bash")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("NOW PASSES: skill git-workflow case needs-bash", p.stdout)
+        self.assertIn("evals/known-failing.txt", p.stdout)
+
+    def test_known_failing_entry_naming_no_case_is_an_error(self):
+        # A typo would otherwise waive nothing, silently.
+        self.known("git-workflow/no-such-case  typo\n")
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate", "--case", "needs-bash")
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertIn("git-workflow/no-such-case", p.stderr)
+
+    def test_known_failing_entry_needs_a_reason(self):
+        self.known("homelab-secrets/no-bash\n")
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate")
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertIn("reason", p.stderr)
+
+
+class SkillEvalsChangedFrom(unittest.TestCase):
+    """--changed-from REF: only the cases of skills the PR touched (AC3)."""
+    setUp = SkillEvalsRunner.setUp
+    run_runner = SkillEvalsRunner.run_runner
+
+    def commit_base(self):
+        git(self.repo, "init", "-q", "-b", "main")
+        git(self.repo, "-c", "user.name=t", "-c", "user.email=t@t", "add", ".")
+        git(self.repo, "-c", "user.name=t", "-c", "user.email=t@t",
+            "commit", "-q", "-m", "base")
+        git(self.repo, "checkout", "-q", "-b", "pr")
+
+    def change(self, rel: str):
+        f = self.repo / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(f.read_text() + "\n# changed\n" if f.exists() else "new\n")
+        git(self.repo, "-c", "user.name=t", "-c", "user.email=t@t", "add", rel)
+        git(self.repo, "-c", "user.name=t", "-c", "user.email=t@t",
+            "commit", "-q", "-m", "change")
+
+    def ran(self, calls):
+        return sorted(c["argv"][c["argv"].index("--case") + 1] for c in calls)
+
+    def test_skill_md_change_runs_only_that_skills_cases(self):
+        self.commit_base()
+        self.change("claude/git-workflow/SKILL.md")
+        p, calls, _ = self.run_runner("--model", "sonnet", "--changed-from", "main")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.ran(calls), ["needs-bash"])
+
+    def test_eval_case_change_runs_only_that_skills_cases(self):
+        self.commit_base()
+        self.change("claude/homelab-secrets/evals/no-bash/case.yaml")
+        _, calls, _ = self.run_runner("--model", "sonnet", "--changed-from", "main")
+        self.assertEqual(self.ran(calls), ["no-bash"])
+
+    def test_other_files_select_nothing_and_succeed(self):
+        self.commit_base()
+        self.change("README.md")
+        self.change("claude/git-workflow/bin/helper.sh")
+        p, calls, _ = self.run_runner("--model", "sonnet", "--changed-from", "main",
+                                      "--gate")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(calls, [])
+        self.assertIn("no eval cases for the changed skills", p.stdout + p.stderr)
+
+    def test_compares_against_the_merge_base_not_the_tip(self):
+        # main moving on after the PR branched must not pull main's skills in.
+        self.commit_base()
+        self.change("claude/git-workflow/SKILL.md")
+        git(self.repo, "checkout", "-q", "main")
+        self.change("claude/homelab-secrets/SKILL.md")
+        git(self.repo, "checkout", "-q", "pr")
+        _, calls, _ = self.run_runner("--model", "sonnet", "--changed-from", "main")
+        self.assertEqual(self.ran(calls), ["needs-bash"])
+
+
+class OllamaEndpoint(unittest.TestCase):
+    setUp = SkillEvalsRunner.setUp
+    run_runner = SkillEvalsRunner.run_runner
+
+    def test_ollama_url_can_be_overridden(self):
+        # CI reaches Ollama through its in-cluster Service, not the gateway.
+        self.env["SKILL_EVALS_OLLAMA_URL"] = "http://ollama.ollama.svc"
+        _, calls, _ = self.run_runner("--model", "qwen3-coder-next")
+        self.assertTrue(calls)
+        self.assertEqual({c["base_url"] for c in calls}, {"http://ollama.ollama.svc"})
+
+
 if __name__ == "__main__":
     unittest.main()

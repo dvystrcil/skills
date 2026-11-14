@@ -123,7 +123,8 @@ def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path,
 
     p = subprocess.run(cmd, env=env, capture_output=True, text=True)
     row = {"skill": c["skill"], "case": c["case"], "with": [], "without": [],
-           "turn_capped": {"with": 0, "without": 0}, "errors": [], "cost_usd": None,
+           "turn_capped": {"with": 0, "without": 0},
+           "timed_out": {"with": 0, "without": 0}, "errors": [], "cost_usd": None,
            "fired": None, "failed_graders": {"with": {}, "without": {}}}
     if not out_json.exists():
         tail = (p.stderr or p.stdout).strip().splitlines()[-1:] or [f"exit {p.returncode}"]
@@ -146,6 +147,10 @@ def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path,
                     # The model looped to the cap. The eval still graded the
                     # run, so it is a score, not a harness failure.
                     row["turn_capped"][arm] += 1
+                elif err.startswith("timed out after"):
+                    # The case's wall-clock cap: also graded, also behaviour
+                    # (a slow local model), not a harness failure.
+                    row["timed_out"][arm] += 1
                 elif err:
                     row["errors"].append(f"{arm}: {err[:200]}")
     return row
@@ -209,6 +214,11 @@ def table(model: str, rows: list[dict]) -> str:
             capped = (f"hit max_turns: with {tc.get('with', 0)}/{len(r['with'])}, "
                       f"without {tc.get('without', 0)}/{len(r['without'])}")
             note = f"{note}; {capped}" if note else capped
+        to = r.get("timed_out") or {}
+        if to.get("with") or to.get("without"):
+            timed = (f"timed out: with {to.get('with', 0)}/{len(r['with'])}, "
+                     f"without {to.get('without', 0)}/{len(r['without'])}")
+            note = f"{note}; {timed}" if note else timed
         fired = r.get("fired")
         fired_s = f"{sum(fired)}/{len(fired)}" if fired is not None else "—"
         if fired is not None and not any(fired):

@@ -1,0 +1,492 @@
+{
+ "model": "qwen3635b",
+ "cases": [
+  {
+   "skill": "batch-lane",
+   "case": "vt350-refresh-goes-to-lane",
+   "with": [
+    0.5,
+    0.5,
+    0.5,
+    0.75,
+    0.75,
+    0.75,
+    1,
+    1,
+    0.5,
+    0.75
+   ],
+   "without": [
+    0.5,
+    0.5,
+    0.75,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.75,
+    0.5
+   ],
+   "turn_capped": {
+    "with": 2,
+    "without": 2
+   },
+   "timed_out": {
+    "with": 5,
+    "without": 4
+   },
+   "errors": [],
+   "cost_usd": 9.6731616,
+   "fired": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    true,
+    true,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "submitted-to-lane": 8,
+     "no-local-freecad": 4
+    },
+    "without": {
+     "submitted-to-lane": 10,
+     "no-local-freecad": 8
+    }
+   }
+  },
+  {
+   "skill": "change-validation",
+   "case": "worker-bump-before-after",
+   "with": [
+    0.3333333333333333,
+    0.6666666666666666,
+    0.6666666666666666,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.6666666666666666,
+    0.3333333333333333,
+    0.6666666666666666,
+    0.3333333333333333,
+    0.3333333333333333
+   ],
+   "without": [
+    0.3333333333333333,
+    0.6666666666666666,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.6666666666666666,
+    0.3333333333333333,
+    0.6666666666666666,
+    0.6666666666666666,
+    0.3333333333333333,
+    0.3333333333333333
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": 1.7423596000000001,
+   "fired": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "baseline-saved-before-restart": 6,
+     "outputs-diffed": 10
+    },
+    "without": {
+     "baseline-saved-before-restart": 6,
+     "outputs-diffed": 10
+    }
+   }
+  },
+  {
+   "skill": "file-issue",
+   "case": "follow-up-goes-to-draft-issue",
+   "with": [
+    1,
+    1,
+    1,
+    0.5,
+    1,
+    1,
+    0,
+    1,
+    1,
+    1
+   ],
+   "without": [
+    0.5,
+    0,
+    0,
+    0.5,
+    0,
+    0,
+    0.5,
+    0,
+    0,
+    0
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": 1.6024660000000002,
+   "fired": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false,
+    true,
+    true,
+    true
+   ],
+   "failed_graders": {
+    "with": {
+     "handed-to-draft-issue": 2,
+     "no-bare-gh-issue-create": 1
+    },
+    "without": {
+     "handed-to-draft-issue": 10,
+     "no-bare-gh-issue-create": 7
+    }
+   }
+  },
+  {
+   "skill": "git-workflow",
+   "case": "fetch-before-editing",
+   "with": [
+    0,
+    0.5,
+    0,
+    0,
+    0.5,
+    0.5,
+    0,
+    0,
+    1,
+    0
+   ],
+   "without": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0.5,
+    0
+   ],
+   "turn_capped": {
+    "with": 1,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": 1.4884224000000001,
+   "fired": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "fetched": 9,
+     "no-duplicate-fix-commit": 6
+    },
+    "without": {
+     "fetched": 10,
+     "no-duplicate-fix-commit": 9
+    }
+   }
+  },
+  {
+   "skill": "homelab-image-updater",
+   "case": "filebrowser-stable-channel",
+   "with": [
+    0.6,
+    0.6,
+    1,
+    1,
+    1,
+    0.6,
+    1,
+    1,
+    0,
+    1
+   ],
+   "without": [
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 1
+   },
+   "errors": [],
+   "cost_usd": 2.0165982000000002,
+   "fired": [
+    false,
+    false,
+    true,
+    true,
+    true,
+    false,
+    true,
+    true,
+    true,
+    true
+   ],
+   "failed_graders": {
+    "with": {
+     "allowtags-under-commonupdatesettings": 4,
+     "constraint-admits-prerelease": 4,
+     "file-written": 1,
+     "allowtags-not-at-image-level": 1,
+     "no-spec-namespace": 1
+    },
+    "without": {
+     "allowtags-under-commonupdatesettings": 10,
+     "constraint-admits-prerelease": 10
+    }
+   }
+  },
+  {
+   "skill": "homelab-secrets",
+   "case": "literal-password-in-manifest",
+   "with": [
+    0.6666666666666666,
+    0.6666666666666666,
+    0,
+    0.3333333333333333,
+    0,
+    1,
+    0.6666666666666666,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333
+   ],
+   "without": [
+    0,
+    0,
+    0,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0,
+    0.3333333333333333
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": 2.1857842,
+   "fired": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "value-never-written": 7,
+     "uses-infisicalsecret": 8,
+     "deployment-has-no-literal": 2
+    },
+    "without": {
+     "value-never-written": 10,
+     "deployment-has-no-literal": 4,
+     "uses-infisicalsecret": 10
+    }
+   }
+  },
+  {
+   "skill": "three-anchor-truthiness",
+   "case": "jvm-heap-on-a-go-service",
+   "with": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0.5,
+    0,
+    0,
+    0
+   ],
+   "without": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": 1.3105186,
+   "fired": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "no-xmx-written": 9,
+     "read-the-image-source": 10
+    },
+    "without": {
+     "no-xmx-written": 10,
+     "read-the-image-source": 10
+    }
+   }
+  },
+  {
+   "skill": "three-anchor-truthiness",
+   "case": "two-versus-one-drift",
+   "with": [
+    0,
+    0.6666666666666666,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0.6666666666666666
+   ],
+   "without": [
+    0,
+    0.6666666666666666,
+    0.6666666666666666,
+    0,
+    0,
+    0,
+    0.6666666666666666,
+    0,
+    0.6666666666666666,
+    0.6666666666666666
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 3,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": 3.1175838,
+   "fired": [
+    false,
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    true,
+    true,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "consulted-deploy-repo": 10,
+     "doc-not-changed-to-live": 8,
+     "no-edit-to-doc": 8
+    },
+    "without": {
+     "consulted-deploy-repo": 10,
+     "doc-not-changed-to-live": 5,
+     "no-edit-to-doc": 5
+    }
+   }
+  }
+ ]
+}

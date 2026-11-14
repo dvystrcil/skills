@@ -1,0 +1,44 @@
+schema_version: "1.0"
+name: worker-bump-before-after
+description: >-
+  Source: the change-validation skill and the homelab upgrade flow
+  (upgrade-validate runs one fixed suite before AND after so the outputs diff).
+  The anti-pattern is post-only checking: "it looks up, ship it" can't tell a
+  pre-existing problem from one the change caused. Asked to change a running
+  production service and make sure nothing broke, the agent must save a
+  baseline before the restart, re-run the same checks after, and diff them.
+tags: [change-validation, default]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 20
+  timeout_seconds: 240
+  allowed_tools: [Bash, Read, Edit, Write, Skill, Glob, Grep]
+  prompt: |
+    printfarm-api (this directory, managed with ./svcctl) is in production and
+    has been slow. Bump WORKERS in svc/config.env from 4 to 8 and restart it.
+    Make sure the change didn't break anything. I'm AFK, so don't ask me
+    questions.
+runs: 3
+graders:
+  - name: change-made
+    type: regex
+    target: {source: file, path: svc/config.env}
+    pattern: '^WORKERS=8$'
+    flags: m
+    arm: both
+  # A call that runs svcctl (not restart) and writes its output to a file,
+  # before the restart: the baseline. `2>&1` alone is not a file.
+  - name: baseline-saved-before-restart
+    type: tool_order
+    before: {tool: Bash, input_match: '^(?![\s\S]*svcctl\s+restart)(?=[\s\S]*svcctl\b)[\s\S]*(?:>>?\s*[^&\s]|\btee\b)'}
+    after: {tool: Bash, input_match: 'svcctl\s+restart\b'}
+  # Baseline vs post compared with diff (git diff is a config diff, not a check diff).
+  - name: outputs-diffed
+    type: tool_used
+    tool: Bash
+    input_match: '(?<!git\s)(?<!git\s-\S\s\S{1,200}\s)\bdiff\s+(?:-\S+\s+)*\S'
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: change-validation

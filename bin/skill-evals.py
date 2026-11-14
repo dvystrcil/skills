@@ -9,6 +9,12 @@ per model, and a compact JSON you can commit and diff (skills#72).
     bin/skill-evals.py                                  # default tag, sonnet
     bin/skill-evals.py --model claude-opus-5-5 --model qwen3-coder-next --model qwen3635b
     bin/skill-evals.py --skill homelab-secrets --runs 1
+    bin/skill-evals.py --harness opencode --model qwen3-coder-next   # skills#121
+
+`--harness opencode` runs the same cases through `opencode run` instead (see
+bin/opencode_eval.py): the harness the local models are deployed in. Under
+`claude plugin eval`, qwen3-coder-next loops to max_turns and scores 0.00 for
+reasons that have nothing to do with the skills (skills#121).
 
 Run it OUTSIDE another sandbox. A case that uses Bash makes `claude plugin
 eval` confine the shell with bubblewrap; inside Claude Code's own Bash sandbox,
@@ -57,6 +63,8 @@ def discover(repo: Path, skill: str | None, case: str | None, tag: str | None):
         yield {
             "skill": skill_name,
             "skill_dir": path.parents[2],
+            "case_dir": path.parent,
+            "spec": spec,
             "case": name,
             "bash": "Bash" in (execution.get("allowed_tools") or []),
             "scaffold": bool((spec.get("context") or {}).get("scaffold_script")),
@@ -143,6 +151,41 @@ def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path,
     return row
 
 
+def run_case_opencode(c: dict, model_alias: str, runs: int | None, workdir: Path,
+                      keep: bool = False) -> dict:
+    """Same row shape as run_case, from the opencode harness."""
+    import opencode_eval  # bin/ is sys.path[0] when this runs as a script
+
+    model, base_url = MODELS.get(model_alias, (model_alias, OLLAMA))
+    n = runs or int(c["spec"].get("runs") or 3)
+    row = {"skill": c["skill"], "case": c["case"], "with": [], "without": [],
+           "turn_capped": {"with": 0, "without": 0}, "errors": [], "cost_usd": None,
+           "fired": None, "failed_graders": {"with": {}, "without": {}}}
+    for arm in ("with", "without"):
+        for i in range(n):
+            keep_dir = workdir / c["case"] / f"{arm}-{i + 1}" if keep else None
+            try:
+                r = opencode_eval.run_once(c["skill_dir"], c["case_dir"], c["spec"], arm,
+                                           model, base_url, eval_root(), keep_dir)
+            except (RuntimeError, ValueError, OSError) as exc:
+                row["errors"].append(f"{arm}: {exc}"[:200])
+                continue
+            row[arm].append(r["score"])
+            for g in r["graders"]:
+                if g["scored"] and not g["passed"]:
+                    fg = row["failed_graders"][arm]
+                    fg[g["name"]] = fg.get(g["name"], 0) + 1
+                if arm == "with" and g["name"] == c.get("fired_grader"):
+                    row["fired"] = (row["fired"] or []) + [bool(g["passed"])]
+            if r["capped"]:
+                row["turn_capped"][arm] += 1
+            elif r["error"]:
+                # A timeout still left a workspace to grade, so it is scored;
+                # it is also an error the table must show.
+                row["errors"].append(f"{arm}: {r['error']}"[:200])
+    return row
+
+
 def mean(xs):
     return sum(xs) / len(xs) if xs else None
 
@@ -194,6 +237,9 @@ def main(argv=None) -> int:
     ap.add_argument("--runs", type=int, help="override per-case runs (default: case.runs, 3)")
     ap.add_argument("--repo", type=Path, default=Path(__file__).resolve().parent.parent)
     ap.add_argument("--out", type=Path, help="write <model>.md/.json here")
+    ap.add_argument("--harness", choices=["claude", "opencode"], default="claude",
+                    help="claude: `claude plugin eval` (default). opencode: `opencode run`, "
+                         "local models only (skills#121)")
     ap.add_argument("--keep", action="store_true",
                     help="keep raw eval JSON under <out>/raw/<model>/ and the "
                          "run sandboxes (traces) under the eval root")
@@ -206,19 +252,29 @@ def main(argv=None) -> int:
     out = a.out or Path(tempfile.mkdtemp(prefix="skill-evals-"))
     out.mkdir(parents=True, exist_ok=True)
     failed = False
-    for model in a.model or ["sonnet"]:
+    runner = run_case_opencode if a.harness == "opencode" else run_case
+    if a.harness == "opencode":
+        claude = [m for m in a.model or [] if m.startswith("claude")
+                  or m in ("sonnet", "opus", "haiku", "fable")
+                  or (m in MODELS and MODELS[m][1] is None)]
+        if claude:
+            ap.error(f"--harness opencode runs local models only (Ollama), not {', '.join(claude)}")
+    for model in a.model or (["qwen3-coder-next"] if a.harness == "opencode" else ["sonnet"]):
         slug = model.replace("/", "_").replace(":", "_")
+        if a.harness == "opencode":
+            slug += ".opencode"
         if a.keep:
             work = out / "raw" / slug
             work.mkdir(parents=True, exist_ok=True)
-            rows = [run_case(c, model, a.runs, work, keep=True) for c in cases]
+            rows = [runner(c, model, a.runs, work, keep=True) for c in cases]
         else:
             with tempfile.TemporaryDirectory(prefix="skill-evals-run-") as work:
-                rows = [run_case(c, model, a.runs, Path(work)) for c in cases]
-        md = table(model, rows)
+                rows = [runner(c, model, a.runs, Path(work)) for c in cases]
+        title = f"{model} (opencode)" if a.harness == "opencode" else model
+        md = table(title, rows)
         (out / f"{slug}.md").write_text(md)
         (out / f"{slug}.json").write_text(json.dumps(
-            {"model": model, "cases": rows}, indent=1) + "\n")
+            {"model": model, "harness": a.harness, "cases": rows}, indent=1) + "\n")
         print(md)
         failed |= any(r["errors"] for r in rows)
     print(f"results: {out}", file=sys.stderr)

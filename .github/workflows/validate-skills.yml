@@ -137,6 +137,25 @@ jobs:
           echo "::error::pip install failed three times"
           exit 1
 
+      # The eval graders are JavaScript regexes. test_eval_cases.py compile-
+      # checks them in node and SKIPPED without it (it was skipping here), and
+      # tests/test_opencode_eval.py grades with node (skills#121). Same
+      # probe-then-fallback as python above.
+      - name: Does this runner already have node?
+        id: probe-node
+        run: |
+          if command -v node >/dev/null; then
+            echo "need-node=false" >> "$GITHUB_OUTPUT"
+            echo "runner provides node $(node --version)"
+          else
+            echo "need-node=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v7
+        if: steps.probe-node.outputs.need-node == 'true'
+        with:
+          node-version: '22'
+
       - name: Discover + run tests/test_*.py
         run: |
           if [ ! -d tests ]; then

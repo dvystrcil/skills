@@ -26,7 +26,49 @@ the local models, so the Claude column would need a second harness anyway.
 Cases live **inside the skill they test**, `claude/<skill>/evals/<case>/case.yaml`,
 because the eval target is the skill folder.
 
+## Harness for local models: `--harness opencode` (skills#121)
+
+`bin/skill-evals.py --harness opencode` runs the **same** `case.yaml` files
+through `opencode run` (`bin/opencode_eval.py`). opencode is the harness the
+local models are deployed in, and under `claude plugin eval` qwen3-coder-next
+scored 0.00 for reasons unrelated to the skills.
+
+**Why qwen3-coder-next failed under `claude plugin eval`** (skills#121; each row
+is a measured A/B on `homelab-image-updater/filebrowser-stable-channel`, 3 runs
+per arm unless noted):
+
+| Suspect | Result |
+|---|---|
+| Tool-call format, prompt truncation | Ruled out. A logging proxy showed well-formed `tool_use` blocks, all tools in the request, ~8k of a 262k context |
+| Sampling (Claude Code sends no `temperature`) | Ruled out. Qwen's recommended 0.7/0.8/20 injected: same 3 of 6 capped, all 0.00 |
+| `max_turns: 12` too tight | Ruled out. At 30, 0 of 6 scored; one run made 76 calls, 11 of them the same `Write` to the same wrong path |
+| No shell granted | **Contributes, in both harnesses.** qwen invents shell tools (`Bash`, `execute`, `run_shell_command`, …) and retries them after "no such tool". Granting Bash under Claude Code didn't help (6 of 6 capped exploring) |
+| cwd ≠ git root | **Main cause.** Both harnesses root the project one level above the cwd (`$HOME`), and qwen resolves `./x` against that root, outside the cwd: **0 of 49** path arguments landed in the cwd across 13 Claude Code runs. Under opencode with the git root at the cwd and no shell: **0.87 with the skill, 0.60 without, fired 2/3, no cap**. With the root at `$HOME`: 0.00–0.20 |
+| Claude Code's system prompt | Not fixable from a case. With a `.git` in the cwd, qwen instead mangled the auto-memory path (`…/projects/-home-…-home-cwd/memory/`) and wrote there. Still 4 of 6 capped |
+
+So the opencode harness differs from `claude plugin eval` in one deliberate
+way: **the cwd is the git root** (that's also how opencode is used, started at a
+repo's root). Scaffolds that mean "the eval home" use `$HOME`, not
+`git rev-parse --show-toplevel`. `tests/test_opencode_eval.py` runs every
+scaffold in both layouts and requires the same file tree.
+
+How a case maps onto opencode:
+
+| case.yaml | opencode |
+|---|---|
+| with / without arm | `skills.paths` → a copy of the skill **without its `evals/`** / no path. opencode's built-in `opencode` and `report` skills are in both arms |
+| `allowed_tools` | Tools not granted are disabled (`tools: {x: false}` and, for the shell, `permission: deny` too: `permission: {bash: allow}` re-enables a disabled shell on 2.3.0). `webfetch`, `websearch`, `question`, `subagent`, `execute` are always off. **Gaps:** `edit` can't be disabled on its own, so Write implies Edit; `opencode_worktree_remove` can't be disabled at all |
+| `max_turns`, `timeout_seconds` | agent `steps`; a process timeout. "Capped" = steps reached and the last step still wanted tools |
+| graders | Same graders. opencode's events are rewritten into Claude Code's trace shape (`shell`→`Bash`, `path`→`file_path`, `newString`→`new_string`, `id`→`skill`) and the regexes run in node, because they are JavaScript (one uses a variable-width lookbehind Python rejects). `llm` graders are not supported |
+| sandbox | bwrap: `/` read-only, the run root writable, credentials hidden (the list from homelab `opencode/sandbox-run.sh`), plus every `.agents`/`.claude`/`.opencode` above the run root: without that, opencode walked up from the cwd and listed `~/.agents/skills` in both arms |
+
+Claude models stay on `claude plugin eval`; `--harness opencode` refuses them.
+
 ## Running
+
+```bash
+bin/skill-evals.py --harness opencode --model qwen3-coder-next --runs 3   # local models
+```
 
 ```bash
 bin/skill-evals.py                                     # every case, sonnet
@@ -288,17 +330,51 @@ score with the skill → without it:
   case for models that don't fetch on their own.
 
 Under the Claude Code harness, `qwen3-coder-next` mostly loops until it hits
-the turn cap. That is a finding about driving it through Claude Code's
-tool-calling, not about these skills. Its opencode deployment is a different
-harness, so these numbers don't carry over there. The `costUsd` shown for qwen
-runs is Claude Code applying Anthropic prices to a local model; nothing was
-billed.
+the turn cap. That is a finding about driving it through Claude Code, not about
+these skills (skills#121 found the causes; see "Harness for local models"
+above). Its column is replaced by the opencode baseline below. The `costUsd`
+shown for qwen runs is Claude Code applying Anthropic prices to a local model;
+nothing was billed.
 
-Compare a later run against these files: `bin/skill-evals.py --tag default
---runs 3 --model <m> --out /tmp/x && diff evals/baselines/2026-11-13/<m>.md /tmp/x/<m>.md`.
+## Baseline: 2026-11-14, `--harness opencode`, all 8 cases, `--runs 3`
+
+Files: `evals/baselines/2026-11-14/qwen3-coder-next.opencode.{md,json}`. Took
+39 minutes. **0 of 48 runs hit the turn cap** (Claude Code: 8 of 12).
+
+| Case | with → without | fired | Note |
+|---|---|---|---|
+| `batch-lane/vt350-refresh-goes-to-lane` | 0.92 → 0.67 | 2/3 | |
+| `change-validation/worker-bump-before-after` | 0.33 → 0.33 | 1/3 | both arms only checked after the restart |
+| `file-issue/follow-up-goes-to-draft-issue` | **1.00 → 0.00** | 3/3 | same split as Opus (1.00 → 0.50) |
+| `git-workflow/fetch-before-editing` | 0.00 → 0.00 | 0/3 | read, edit, commit in 3 calls; never fetched, skill never loaded |
+| `homelab-image-updater/filebrowser-stable-channel` | 0.73 → 0.20 | 1/3 | |
+| `homelab-secrets/literal-password-in-manifest` | 0.33 → 0.11 | 0/3 | never fired: the Δ is noise |
+| `three-anchor-truthiness/jvm-heap-on-a-go-service` | 0.50 → 0.33 | 0/3 | never fired: noise |
+| `three-anchor-truthiness/two-versus-one-drift` | 0.00 → 0.00 | 0/3 | read two files, edited the doc |
+| **Mean** | **0.48 → 0.21, Δ +0.27** | | Opus on 3 cases: +0.36 |
+
+Read with the 3-runs caveat above: this is one baseline, and qwen moved a
+lot between runs on 2026-11-13. The cases where the skill **fired** (file-issue,
+image-updater, batch-lane) are the ones whose Δ is about the skill. On the
+others qwen didn't load the skill at all, which is a description/triggering
+question for that skill, not a harness one. Gaps from the table above:
+`edit` can't be disabled alone, `opencode_worktree_remove` can't be disabled,
+and `llm` graders aren't supported.
+
+Compare a later run against the baseline files: `bin/skill-evals.py --tag default
+--runs 3 --model <m> --out /tmp/x && diff evals/baselines/2026-11-13/<m>.md /tmp/x/<m>.md`
+(Claude models), or `bin/skill-evals.py --harness opencode --runs 3 --out /tmp/x && diff
+evals/baselines/2026-11-14/qwen3-coder-next.opencode.md /tmp/x/qwen3-coder-next.opencode.md`.
 
 ## Not done yet
 
+- **opencode harness at ~10 runs per arm**, the local-first keep rule's sample
+  size (skills#72), and for `qwen3.6:35b` too. One 3-run baseline exists.
+- **Skills qwen doesn't load under opencode**: git-workflow, homelab-secrets
+  and both three-anchor cases fired 0/3. That is a description/triggering
+  question per skill.
+- **Cases that withhold Bash** measure in part how the model copes without a
+  shell (qwen invents shell tools), not only the skill.
 - **AC5 (CI on PRs touching `claude/*/SKILL.md`)**: the runner needs a Claude
   credential and a host whose sandbox can nest user namespaces. Neither is on
   `skills-runner` today. Follow-up.

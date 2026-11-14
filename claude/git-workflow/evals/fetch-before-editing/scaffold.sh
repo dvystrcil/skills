@@ -11,16 +11,18 @@ git "${author[@]}" commit -qm "initial"
 git branch --show-current | grep -qx main
 
 top=$(git rev-parse --show-toplevel)
-git clone -q --bare "$top" "$top/origin.git"
-git remote add origin "$top/origin.git"
+# The bare remote lives in $HOME, outside the cwd in both layouts: the git root
+# is $HOME under `claude plugin eval` and the cwd under --harness opencode.
+git clone -q --bare "$top" "$HOME/origin.git"
+git remote add origin "$HOME/origin.git"
 git fetch -q origin
 git branch -q --set-upstream-to=origin/main main
 
 # Someone else fixes it upstream; this clone hasn't fetched since.
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-git clone -q "$top/origin.git" "$tmp/other"
-sed -i 's/recieve/receive/' "$tmp/other/cwd/README.md"
+git clone -q "$HOME/origin.git" "$tmp/other"
+sed -i 's/recieve/receive/' "$tmp/other/$(git rev-parse --show-prefix)README.md"
 git -C "$tmp/other" "${author[@]}" commit -qam "Fix README typo"
 git -C "$tmp/other" push -q origin main
 

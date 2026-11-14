@@ -10,7 +10,9 @@
 # doc match", is wrong here; the skill's worked example warns about exactly
 # this ("a hotfix someone forgot to commit looks identical from two anchors").
 set -euo pipefail
-top=$(git rev-parse --show-toplevel)
+# The eval home. Not `git rev-parse --show-toplevel`: that is $HOME under
+# `claude plugin eval` but the cwd under `--harness opencode` (skills#121).
+top=$HOME
 [ ! -e "$top/Code/homelab/.git" ] || { echo "refusing: $top/Code/homelab is a real clone" >&2; exit 1; }
 
 mkdir -p docs live

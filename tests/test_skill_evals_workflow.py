@@ -98,6 +98,18 @@ class SkillEvalsWorkflow(unittest.TestCase):
                      "--changed-from"):
             self.assertIn(flag, runs)
 
+    def test_job_proves_the_egress_lock_before_running_the_agent(self):
+        # The NetworkPolicy binds only on enforcing nodes. A job that can reach
+        # the apiserver or another service must stop before any agent runs.
+        names = [s.get("name", "") for s in self.steps()]
+        lock = next(i for i, n in enumerate(names) if "egress lock" in n.lower())
+        run_evals = next(i for i, s in enumerate(self.steps())
+                         if "bin/skill-evals.py" in s.get("run", ""))
+        self.assertLess(lock, run_evals)
+        body = list(self.steps())[lock]["run"]
+        self.assertIn("kubernetes.default.svc", body)
+        self.assertIn("n8n", body)
+
     def test_inputs_reach_the_shell_through_env_not_interpolation(self):
         # ${{ inputs.x }} inside run: is script injection.
         for s in self.steps():

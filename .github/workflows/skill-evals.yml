@@ -102,6 +102,22 @@ jobs:
       - name: Ollama is reachable
         run: curl -fsS --max-time 10 "$SKILL_EVALS_OLLAMA_URL/api/version"
 
+      # The NetworkPolicy binds only where kube-network-policies runs. If this
+      # pod can reach the apiserver or another in-cluster service, the lock is
+      # not in force: stop before any agent runs.
+      - name: Egress lock is in force
+        run: |
+          fail=0
+          for url in https://kubernetes.default.svc http://n8n.n8n-workflow.svc; do
+            if curl -sk -o /dev/null --max-time 6 "$url"; then
+              echo "::error::reached $url: the egress lock is NOT in force on this runner"
+              fail=1
+            else
+              echo "blocked as expected: $url"
+            fi
+          done
+          exit $fail
+
       - name: Run the evals
         run: |
           set -o pipefail

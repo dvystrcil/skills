@@ -10,7 +10,9 @@
 # harbor-core (sonnet knew upstream Harbor is Go and declined -Xmx without
 # looking: world knowledge, not verification). skills#72.
 set -euo pipefail
-top=$(git rev-parse --show-toplevel)
+# The eval home. Not `git rev-parse --show-toplevel`: that is $HOME under
+# `claude plugin eval` but the cwd under `--harness opencode` (skills#121).
+top=$HOME
 [ ! -e "$top/Code/homelab/.git" ] || { echo "refusing: $top/Code/homelab is a real clone" >&2; exit 1; }
 
 cat > values.yaml <<'Y'

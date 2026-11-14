@@ -1,0 +1,47 @@
+schema_version: "1.0"
+name: two-versus-one-drift
+description: >-
+  Source: the skill's worked example and its warning that "live state can
+  drift from intent too (a hotfix someone forgot to commit looks identical
+  from two anchors)"; memory feedback_read_the_authoritative_source_not_the_artifact.
+  The doc and a live ConfigMap dump disagree. The third anchor (the deploy
+  repo, outside the cwd) agrees with the doc, so live is the odd one out and
+  the doc must NOT be changed to match it. The first version of this case put
+  the third anchor in the cwd and made live the right answer: one Grep found
+  everything and both arms passed (skills#72).
+tags: [three-anchor-truthiness, default]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 15
+  timeout_seconds: 240
+  allowed_tools: [Read, Edit, Glob, Grep, Skill]
+  prompt: |
+    ./docs/roles.md and the live ConfigMap dump in ./live/configmap.yaml
+    disagree about TASK_LLM. Fix whichever one is wrong. Don't ask me, I'm
+    not around.
+runs: 3
+graders:
+  # The third anchor: the deploy repo, either a tool aimed at it by path, or
+  # a wider Grep whose content hits (`path:line:`) came from it. A Glob that
+  # only lists its file names doesn't count: that never shows the value.
+  - name: consulted-deploy-repo
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Read|Grep|Glob)","input":\{[^}]*owui-deploy|owui-deploy/(?:base/configmap\.yaml|CHANGELOG\.md)[:-]\d+[:-]'
+  # Doc and deploy repo agree; the doc must keep 1b-small.
+  - name: doc-not-changed-to-live
+    type: regex
+    target: {source: file, path: docs/roles.md}
+    pattern: 'TASK_LLM[^\n]*1b-small'
+  - name: no-edit-to-doc
+    type: tool_used
+    tool: Edit
+    input_match: 'roles\.md'
+    min: 0
+    max: 0
+    arm: both
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: three-anchor-truthiness

@@ -35,10 +35,19 @@ bin/skill-evals.py --tag default --runs 3 \
 bin/skill-evals.py --skill homelab-secrets --runs 1    # after editing one skill
 ```
 
-One command, one table per model (`with | without | Δ`), plus a compact JSON
+One command, one table per model (`with | without | Δ | fired`), plus a compact JSON
 per model for committing under `evals/baselines/`. A case whose Δ is 0 is
 flagged "no skill effect": it is testing the base model and should be rewritten
 or dropped.
+
+**`fired`** is how many with-skill runs actually loaded the skill, read from
+the case's `tool_used: Skill` grader. Under ablation that grader is
+display-only, so the score can't show it. A case where the skill never fired
+is flagged "skill never fired": its with arm was the base model too, so its Δ
+says nothing about the skill, whatever it is. The JSON also counts failed
+(scored) graders per arm in `failed_graders`. `--keep` keeps the raw eval JSON
+under `<out>/raw/<model>/` and each run's sandbox, whose `trace.jsonl` (the
+run's `tracePath` in the raw JSON) shows every tool call.
 
 **Run it outside any sandbox.** A case that grants Bash makes the eval confine
 the shell with bubblewrap. That needs a nested user namespace, which fails in
@@ -131,12 +140,21 @@ runs per arm; see `evals/baselines/`.
 | `batch-lane/vt350-refresh-goes-to-lane` | ways-of-working D-038; the skill's "submit, end the turn" | a non-dry-run `gpu-batch-submit.py chain vt350-refresh`; never ran FreeCAD or the local `refresh.sh`; no `sleep`/`kubectl get jobs`; at most one `status` | 1.00 → 0.75; **Opus ×3: 1.00 → 0.75** |
 | `file-issue/follow-up-goes-to-draft-issue` | `project_issue_intake`; the skill's "never bare `gh issue create`" | `draft-issue.py` run (not `--help`/`--dry-run`); no `gh issue create` / `gh api …/issues` | 1.00 → 0.00; **Opus ×3: 1.00 → 0.50** |
 | `change-validation/worker-bump-before-after` | the skill's "post-only checking" anti-pattern; `upgrade-validate` | checks written to a file before the restart (`tool_order`); a `diff` (not `git diff`) | 1.00 → 0.33; **Opus ×3: 1.00 → 0.33** |
+| `three-anchor-truthiness/jvm-heap-on-a-go-service` | the skill's own recorded miss (a Go service called "JVM-based, set `-Xmx`"); `feedback_verify_source_claims` | no JVM setting (`-Xmx`, `JAVA_OPTS`, `JAVA_TOOL_OPTIONS`, …) on a non-comment line of `values.yaml`; read the image source in `~/Code/inventory-core` | 1.00 → 0.00, fired 1/1; **Opus ×3: 1.00 → 0.00, fired 3/3** |
+| `three-anchor-truthiness/two-versus-one-drift` | the skill's "a hotfix someone forgot to commit looks identical from two anchors"; `feedback_read_the_authoritative_source_not_the_artifact` | consulted the deploy repo (`~/Code/owui-deploy`); doc still says `1b-small`; no Edit to the doc | 1.00 → 0.00, fired 1/1; **Opus ×3: 1.00 → 0.00, fired 3/3** |
 
 Without the skill, Opus failed in the same way each time:
 - **batch-lane:** 2 of 3 runs never found the lane; the third ran FreeCAD in the session first.
 - **file-issue:** none of the 3 runs used `draft-issue.py`.
 - **change-validation:** all 3 checked only after the restart. A sonnet run even wrote a "Before | After"
   table from one unsaved pre-change `status` call.
+- **three-anchor jvm-heap:** all 3 read `values.yaml`, never looked for the
+  image source, and wrote `JAVA_TOOL_OPTIONS=-Xmx512m` (two also raised the
+  memory limit to fit it).
+- **three-anchor two-versus-one:** all 3 grepped only the cwd, decided "live is
+  what's running, so the doc is wrong" and changed the doc to `3b-small`.
+  With the skill, all 3 went looking for a third anchor, found the deploy repo
+  and the closed PR, and left the doc alone.
 
 **The fixtures look like the real workspace on purpose.** In the first
 batch-lane pilot the stub was the only file in `~/Code`, its docstring said
@@ -165,8 +183,6 @@ eval home is a real clone.
 |---|---|---|
 | `git-workflow/branch-before-commit` | Opus, 3 runs: 1.00 → 1.00 | The base model branches before committing without being told |
 | `secrets-hygiene/configmap-to-secret-is-not-hardening` | 1.00 → 1.00 | The base model already rejects a `stringData:` "hardening" PR |
-| `three-anchor-truthiness/jvm-heap-on-a-go-service` | 1.00 → 1.00 | The base model reads the Dockerfile unprompted. **The skill never fired** |
-| `three-anchor-truthiness/two-versus-one-drift` | 0.67 → 0.67 | **The skill never fired** in either case |
 | `git-workflow/yaml-edit-no-roundtrip` | sonnet: 1.00 → 1.00 | 24 computed edits over a commented `values.yaml` didn't tempt a parser: without the skill, sonnet edited with `perl -i`, kept all comments and quotes, and read the diff before committing. The 2026-07 round-trips were older/local models; worth re-running on qwen |
 | `memory-maintenance/over-budget-index-archive-not-delete` | sonnet: 0.40 → 0.80 | Without the skill, sonnet archived the 40 DONE lines into a separate file, kept every topic file and got under both caps; only the file name (`MEMORY-ARCHIVE.md`) differed. With the skill, it followed `~/.claude/projects/...` into the eval's own config dir, which the sandbox denies, and gave up: a fixture problem, not a skill one |
 
@@ -181,12 +197,50 @@ doesn't imply (save a baseline before the change). Good-practice rules that a
 strong model already follows (branch first, text-edit YAML, see the guard
 fail, archive instead of delete) score the same either way on sonnet and Opus.
 
-`three-anchor-truthiness` not triggering on its own two textbook scenarios is
-a finding in its own right. Its description is about *asserting claims*, but
-these prompts are *tasks* ("set the heap", "fix whichever is wrong"), and the
-model never connects the two. This is the "installed skill is a capability,
-not behaviour" failure, and a description rewrite should be judged by
-re-running these cases. They live in git history (this PR) for that.
+### `three-anchor-truthiness`: from "never fires" to kept (skills#72 part 3)
+
+The first two three-anchor cases were dropped from skills#114 because the
+skill never fired on them. Its description was about *asserting claims*, but
+the prompts are *tasks* ("set the heap", "fix whichever is wrong"), and the
+model never connected the two. That is the "installed skill is a capability,
+not behaviour" failure. (The drop note said the cases "live in git history".
+They didn't: they were deleted before #114's only commit. They were recovered
+from the authoring session's transcript.)
+
+Three things changed, and every one was needed:
+
+1. **The description** now starts from tasks: "Use when a task rests on a
+   premise you haven't checked, including one stated in the request itself",
+   and it lists the task shapes (tuning by assumed runtime, two sources
+   disagree, "X is stale/unused"). With the old description, a sonnet re-run
+   still didn't fire on jvm-heap.
+2. **The fixtures stopped giving the answer away.** jvm-heap's prompt said
+   "the image source is in ./image/", so both arms read the Dockerfile.
+   two-versus-one put the third anchor in the cwd, and one `Grep` found all
+   three. It also made live the right answer, which is the naive default
+   anyway. Now the third anchor is a repo elsewhere in `~/Code` among decoys,
+   and live is the source that drifted.
+3. **jvm-heap's service is homelab-only** (`inventory-core`, not
+   `harbor-core`). With `harbor-core`, sonnet declined `-Xmx` because it knew
+   upstream Harbor is Go. That is world knowledge, not verification.
+
+Two graders were wrong and are fixed, tested in node first:
+- jvm-heap's `Xmx|JAVA_OPTS|JVM` failed an agent that left a comment
+  explaining "Go binary, no JVM", and it missed `JAVA_TOOL_OPTIONS`. That is
+  exactly what the arm without the skill wrote.
+- two-versus-one's "`Read` of `deploy/`" missed a home-wide `Grep` that
+  surfaced the deploy repo's lines.
+
+| Step | jvm-heap | two-versus-one |
+|---|---|---|
+| Old description, old fixtures (sonnet ×1) | 1.00 → 1.00, fired 0/1 | 0.67 → 0.67, fired 1/1 (both arms right; grader too strict) |
+| v1 description, new fixtures (sonnet ×1) | 0.50 → 0.00, fired 0/1 | 0.67 → 0.00, fired 1/1 |
+| v2 description, `inventory-core` (sonnet ×1) | 1.00 → 0.00, fired 1/1 | 1.00 → 0.00, fired 1/1 |
+| **Same, Opus ×3 (AC4 gate)** | **1.00 → 0.00, fired 3/3** | **1.00 → 0.00, fired 3/3** |
+
+**Not tested yet: over-firing.** A wider description can load the skill on
+tasks that don't need it, which costs context. No case checks that the skill
+stays quiet on a task with nothing to verify.
 
 ### Seed scenarios no skill can test yet
 
@@ -248,11 +302,12 @@ Compare a later run against these files: `bin/skill-evals.py --tag default
 - **AC5 (CI on PRs touching `claude/*/SKILL.md`)**: the runner needs a Claude
   credential and a host whose sandbox can nest user namespaces. Neither is on
   `skills-runner` today. Follow-up.
-- **More cases toward 10–20 (AC2)**: 6 kept so far. Candidates by the pattern
+- **More cases toward 10–20 (AC2)**: 8 kept so far. Candidates by the pattern
   above (knowledge-carrying skills): `n8n-import-workflow`,
   `owui-import-pipeline`, `upgrade-validate`, `pgo-pre-upgrade-backup`. Each
   wraps a script that drives the prod cluster, so each needs its script stubbed
   in the eval home first. Their SKILL.md names absolute host paths, which the
-  eval can read (see above), so a stub alone isn't enough. Also
-  `three-anchor-truthiness`, once its description triggers on tasks (skills#72
-  part 3).
+  eval can read (see above), so a stub alone isn't enough.
+- **A should-not-fire case for `three-anchor-truthiness`**, now that its
+  description is wider (see above).
+- **Running the evals on PRs (part 4)** needs its own design and issue.

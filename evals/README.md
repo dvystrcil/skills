@@ -17,7 +17,7 @@ and the case schema embedded in it) and confirmed by pilot runs, not assumed:
 | AC3: deterministic grading | Graders `regex` (over the trace, the final message, or a file's contents), `tool_used` (tool + `input_match` regex + `min`/`max`), `tool_order`, `file_exists`. `llm` exists but no case here uses it |
 | Fixtures | `context.scaffold_script` builds the case's files in a throwaway cwd (`--scaffold`) |
 | AC6: local models | Runs any model the Anthropic Messages API serves. Ollama 0.40 serves `/v1/messages`, so `ANTHROPIC_BASE_URL=https://ollama.sirddail.net` runs qwen through the same cases |
-| Cost control | `runs`, `--max-cost-usd`, per-case `max_turns`/`timeout_seconds` |
+| Cost control | `runs`, `--max-cost-usd`, per-case `max_turns`/`timeout_seconds`. The report's `costUsd` is an **estimate at API prices**: here Claude Code runs on the claude.ai subscription and nothing is billed per token, and for local models it is Anthropic's price list applied to Ollama tokens. A CI job using an API key would be real billing |
 
 Why not the others: an n8n/dmf harness would have to rebuild the ablation arm,
 tool-call capture and graders that this already has. And it would only drive
@@ -30,8 +30,8 @@ because the eval target is the skill folder.
 
 ```bash
 bin/skill-evals.py                                     # every case, sonnet
-bin/skill-evals.py --tag default --runs 3 \
-  --model claude-opus-5-5 --model qwen3-coder-next --model qwen3635b   # model change
+bin/skill-evals.py --tag default --runs 10 --model qwen3635b --keep   # primary (local) column, ~3.5 h
+bin/skill-evals.py --tag default --runs 3 --model claude-opus-5-5     # Claude column, on demand only
 bin/skill-evals.py --skill homelab-secrets --runs 1    # after editing one skill
 ```
 
@@ -127,21 +127,40 @@ sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1   # restore the de
 Undo it with `sudo rm /etc/apparmor.d/bwrap /etc/apparmor.d/disable/bwrap-userns-restrict`
 followed by `sudo systemctl reload apparmor`.
 
+## Keep rule (decided 2026-11-14)
+
+Decision: https://github.com/dvystrcil/skills/issues/72#issuecomment-6881730933
+
+- **A case is kept if its skill fires and beats the no-skill arm on at least
+  one model.** Results are reported per model, never as one pooled number.
+- **A local model is the primary column**, at 10 runs per arm. Three runs per
+  arm was noise for qwen (+0.31 one run, −0.13 the next, on the same cases).
+  Ten runs cost hours of GPU time, not money.
+- **Claude is tested on demand only**, from a local run or a
+  `workflow_dispatch`, never on every PR. It is a candidate **fallback** for
+  the tasks local fails. If local fails a case with the skill and Claude passes
+  it, the case is a fallback candidate. If both fail, the skill or the case
+  needs work.
+- Parts 2 and 3 of skills#72 kept or dropped cases on Opus alone. Nobody
+  decided that; it drifted in. The Opus ×3 numbers below are still valid as
+  the Claude column. They just aren't the gate any more.
+
 ## Cases (AC2) and the with/without proof (AC4)
 
-Pilot runs used sonnet with 1 run per arm. The committed baselines (AC6) use 3
-runs per arm; see `evals/baselines/`.
+The pilot column is sonnet at 1 run per arm. The Claude column
+(`claude-opus-5-5`, 3 runs per arm) was run on demand. Per-model results are in
+"Per-model results" below and `evals/baselines/`.
 
-| Case | Source (memory / incident) | Deterministic graders | Pilot with → without |
+| Case | Source (memory / incident) | Deterministic graders | Pilot (sonnet ×1) with → without; Claude column |
 |---|---|---|---|
 | `homelab-secrets/literal-password-in-manifest` | `feedback_secret_manifest_in_repo_is_not_hardening`, libreoffice#1→#2 | password never in a Write/Edit input; no literal in `deployment.yaml`; an `InfisicalSecret` written | 1.00 → 0.33 |
 | `homelab-image-updater/filebrowser-stable-channel` | skill's silent-drop + pre-release gotchas; homepage#33→#34, homelab#1421 | `allowTags` under `commonUpdateSettings`; constraint `1.x-0`; no `spec.namespace` | 1.00 → 0.60 |
 | `git-workflow/fetch-before-editing` | git-workflow rule 0 (2026-08-09: 7 of 8 "fix" PRs were no-ops); `feedback_check_repo_staleness_before_batch_fix` | ran `git fetch`/`pull`; made no commit (the fix was already on `origin/main`) | 0.50 → 0.00 (sonnet; with-skill runs vary, see baseline) |
-| `batch-lane/vt350-refresh-goes-to-lane` | ways-of-working D-038; the skill's "submit, end the turn" | a non-dry-run `gpu-batch-submit.py chain vt350-refresh`; never ran FreeCAD or the local `refresh.sh`; no `sleep`/`kubectl get jobs`; at most one `status` | 1.00 → 0.75; **Opus ×3: 1.00 → 0.75** |
-| `file-issue/follow-up-goes-to-draft-issue` | `project_issue_intake`; the skill's "never bare `gh issue create`" | `draft-issue.py` run (not `--help`/`--dry-run`); no `gh issue create` / `gh api …/issues` | 1.00 → 0.00; **Opus ×3: 1.00 → 0.50** |
-| `change-validation/worker-bump-before-after` | the skill's "post-only checking" anti-pattern; `upgrade-validate` | checks written to a file before the restart (`tool_order`); a `diff` (not `git diff`) | 1.00 → 0.33; **Opus ×3: 1.00 → 0.33** |
-| `three-anchor-truthiness/jvm-heap-on-a-go-service` | the skill's own recorded miss (a Go service called "JVM-based, set `-Xmx`"); `feedback_verify_source_claims` | no JVM setting (`-Xmx`, `JAVA_OPTS`, `JAVA_TOOL_OPTIONS`, …) on a non-comment line of `values.yaml`; read the image source in `~/Code/inventory-core` | 1.00 → 0.00, fired 1/1; **Opus ×3: 1.00 → 0.00, fired 3/3** |
-| `three-anchor-truthiness/two-versus-one-drift` | the skill's "a hotfix someone forgot to commit looks identical from two anchors"; `feedback_read_the_authoritative_source_not_the_artifact` | consulted the deploy repo (`~/Code/owui-deploy`); doc still says `1b-small`; no Edit to the doc | 1.00 → 0.00, fired 1/1; **Opus ×3: 1.00 → 0.00, fired 3/3** |
+| `batch-lane/vt350-refresh-goes-to-lane` | ways-of-working D-038; the skill's "submit, end the turn" | a non-dry-run `gpu-batch-submit.py chain vt350-refresh`; never ran FreeCAD or the local `refresh.sh`; no `sleep`/`kubectl get jobs`; at most one `status` | 1.00 → 0.75; **Claude (Opus ×3): 1.00 → 0.75** |
+| `file-issue/follow-up-goes-to-draft-issue` | `project_issue_intake`; the skill's "never bare `gh issue create`" | `draft-issue.py` run (not `--help`/`--dry-run`); no `gh issue create` / `gh api …/issues` | 1.00 → 0.00; **Claude (Opus ×3): 1.00 → 0.50** |
+| `change-validation/worker-bump-before-after` | the skill's "post-only checking" anti-pattern; `upgrade-validate` | checks written to a file before the restart (`tool_order`); a `diff` (not `git diff`) | 1.00 → 0.33; **Claude (Opus ×3): 1.00 → 0.33** |
+| `three-anchor-truthiness/jvm-heap-on-a-go-service` | the skill's own recorded miss (a Go service called "JVM-based, set `-Xmx`"); `feedback_verify_source_claims` | no JVM setting (`-Xmx`, `JAVA_OPTS`, `JAVA_TOOL_OPTIONS`, …) on a non-comment line of `values.yaml`; read the image source in `~/Code/inventory-core` | 1.00 → 0.00, fired 1/1; **Claude (Opus ×3): 1.00 → 0.00, fired 3/3** |
+| `three-anchor-truthiness/two-versus-one-drift` | the skill's "a hotfix someone forgot to commit looks identical from two anchors"; `feedback_read_the_authoritative_source_not_the_artifact` | consulted the deploy repo (`~/Code/owui-deploy`); doc still says `1b-small`; no Edit to the doc | 1.00 → 0.00, fired 1/1; **Claude (Opus ×3): 1.00 → 0.00, fired 3/3** |
 
 Without the skill, Opus failed in the same way each time:
 - **batch-lane:** 2 of 3 runs never found the lane; the third ran FreeCAD in the session first.
@@ -178,6 +197,11 @@ eval home is a real clone.
   skill until its script can be stubbed.
 
 ### Dropped by AC4 (passed without the skill, or the skill never fired)
+
+These were dropped under the old, Opus/sonnet-only gate. Under the 2026-11-14
+keep rule, a case can come back if a local model shows a skill effect on it.
+None has been re-run on qwen yet. `yaml-edit-no-roundtrip` is the likeliest,
+since the 2026-07 round-trips were local models.
 
 | Case | Pilot with → without | Why dropped |
 |---|---|---|
@@ -236,7 +260,7 @@ Two graders were wrong and are fixed, tested in node first:
 | Old description, old fixtures (sonnet ×1) | 1.00 → 1.00, fired 0/1 | 0.67 → 0.67, fired 1/1 (both arms right; grader too strict) |
 | v1 description, new fixtures (sonnet ×1) | 0.50 → 0.00, fired 0/1 | 0.67 → 0.00, fired 1/1 |
 | v2 description, `inventory-core` (sonnet ×1) | 1.00 → 0.00, fired 1/1 | 1.00 → 0.00, fired 1/1 |
-| **Same, Opus ×3 (AC4 gate)** | **1.00 → 0.00, fired 3/3** | **1.00 → 0.00, fired 3/3** |
+| **Same, Opus ×3 (Claude column, on demand)** | **1.00 → 0.00, fired 3/3** | **1.00 → 0.00, fired 3/3** |
 
 **Not tested yet: over-firing.** A wider description can load the skill on
 tasks that don't need it, which costs context. No case checks that the skill
@@ -261,7 +285,79 @@ score the same and they would fail AC4 by construction:
 Each becomes testable once its rule is in a skill. Moving the rule into a skill
 is also what makes it reach sessions that never load AGENTS.md.
 
-## Baseline (AC6): 2026-11-13, `--tag default --runs 3`
+## Per-model results (AC6): 2026-11-14
+
+Primary column: `qwen3.6:35b` (alias `qwen3635b`), all 8 cases, **10 runs
+per arm** (`--tag default --runs 10 --keep`). The 160 runs took 3.45 h.
+Files: `evals/baselines/2026-11-14/qwen3635b.{md,json}`. The Claude column is
+`claude-opus-5-5` at 3 runs per arm, from the on-demand runs on 2026-11-13
+(three cases are in `evals/baselines/2026-11-13/`, the other five in the case
+table above). `qwen3-coder-next` is left out until
+https://github.com/dvystrcil/skills/issues/121 is fixed, because it loops to
+`max_turns` under this harness.
+
+Mean score with the skill → without it, and how many with-skill runs loaded
+the skill:
+
+| Case | qwen3.6:35b ×10: with → without (Δ), fired | qwen with, split by fired / not fired | Opus ×3: with → without (Δ) | Kept? (fires and beats no-skill on ≥1 model) |
+|---|---|---|---|---|
+| `file-issue/follow-up-goes-to-draft-issue` | 0.85 → 0.15 (**+0.70**), 9/10 | 0.94 / 0.00 | 1.00 → 0.50 (+0.50) | **Yes, both models** |
+| `homelab-image-updater/filebrowser-stable-channel` | 0.78 → 0.60 (+0.18), 7/10 | 0.86 / 0.60 | 1.00 → 0.60 (+0.40) | **Yes, both models** |
+| `homelab-secrets/literal-password-in-manifest` | 0.43 → 0.20 (+0.23), 2/10 | 0.83 / 0.33 | 1.00 → 0.33 (+0.67) | **Yes, both models**; qwen seldom fires |
+| `batch-lane/vt350-refresh-goes-to-lane` | 0.70 → 0.55 (+0.15), 3/10; timed out 5/10 → 4/10 | 0.92 / 0.61 | 1.00 → 0.75 (+0.25) | **Yes, both models**; qwen seldom fires |
+| `git-workflow/fetch-before-editing` | 0.25 → 0.05 (+0.20), 1/10 | 1.00 / 0.17 | 1.00 → 1.00 (0) | **Yes, on qwen only**, and weakly: it fired once (that run scored 1.00) |
+| `change-validation/worker-bump-before-after` | 0.47 → 0.47 (0), **0/10** | — / 0.47 | 1.00 → 0.33 (+0.67) | **Yes, on Opus only** |
+| `three-anchor-truthiness/jvm-heap-on-a-go-service` | 0.05 → 0.00 (+0.05), **0/10** | — / 0.05 | 1.00 → 0.00 (+1.00), fired 3/3 | **Yes, on Opus only** |
+| `three-anchor-truthiness/two-versus-one-drift` | 0.13 → 0.33 (**−0.20**), 4/10; timed out 3/10 → 0/10 | 0.17 / 0.11 | 1.00 → 0.00 (+1.00), fired 3/3 | **Yes, on Opus only** |
+
+All 8 cases are kept under the new rule. None was dropped.
+
+**What qwen's column says:**
+
+- **Its main failure is not loading the skill.** In 5 cases the runs that did
+  load it scored 0.83–1.00, against 0.00–0.61 for the runs that didn't.
+  change-validation and jvm-heap never loaded it in 10 runs. For a local
+  model, the skill's `description` (what makes it fire) matters more than
+  the body.
+- **two-versus-one is the one case where loading the skill didn't help.**
+  In a run that loaded it, qwen understood it had two anchors and needed a
+  third, and left the doc alone. It then searched only the cwd and its git
+  history, never `~/Code` where the deploy repo is, and spawned subagents in a
+  chain until the 240 s timeout. `consulted-deploy-repo` failed in all 20
+  runs.
+- **Timeouts are graded, not errors.** A run that hits the case's
+  `timeout_seconds` is scored on what it did before the cutoff, the same as a
+  run that hits `max_turns`. The runner now counts both in the note column.
+  Before this, 13 timed-out runs blanked 3 of the 8 cases to ERROR.
+- **Mean over 8 cases: with 0.46, without 0.29, Δ +0.16.** At 10 runs per arm
+  this replaces the 3-run qwen numbers below, which were noise.
+- costUsd for the 160 runs: **$23.14 estimated at API prices**. That is
+  Anthropic's price list applied to tokens that Ollama served. Nothing was
+  billed.
+
+### Fallback candidates (local fails with the skill)
+
+This is input for https://github.com/dvystrcil/homelab/issues/2250. It lists
+the cases where qwen3.6:35b scores below 0.5 *with* the skill, or misses the
+case's core grader in most with-skill runs, while Opus scores 1.00:
+
+| Case | qwen with | Why local fails | Opus with |
+|---|---|---|---|
+| `three-anchor-truthiness/jvm-heap-on-a-go-service` | 0.05 | never fired; wrote a JVM flag in 9/10 runs | 1.00 |
+| `three-anchor-truthiness/two-versus-one-drift` | 0.13 | fired 4/10 but never reached the deploy repo; 3 timeouts | 1.00 |
+| `git-workflow/fetch-before-editing` | 0.25 | fired 1/10; skipped `git fetch` in 9/10 | 1.00 (Opus also passes without the skill) |
+| `homelab-secrets/literal-password-in-manifest` | 0.43 | fired 2/10; wrote the password in 7/10, no `InfisicalSecret` in 8/10 | 1.00 |
+| `change-validation/worker-bump-before-after` | 0.47 | never fired; never diffed before/after (10/10) | 1.00 |
+| `batch-lane/vt350-refresh-goes-to-lane` (borderline) | 0.70 | mean ≥ 0.5, but did not submit to the lane in 8/10 runs (the core grader); 5 timeouts | 1.00 |
+
+No case fails on both models. Every failure above is a local one that Claude
+passes. The cheaper fix to try first, before
+escalating to Claude, is the description (firing). jvm-heap and
+change-validation never fired, and in the cases that fired the skill mostly
+worked. The exception is two-versus-one, where the skill would need to say
+where to look (`~/Code`) for a local model to find the third anchor.
+
+## Earlier baseline: 2026-11-13, `--tag default --runs 3`
 
 Files: `evals/baselines/2026-11-13/<model>.{md,json}` (second run of the day,
 the first to include the Bash case; the first run is in git history). Mean
@@ -269,7 +365,7 @@ score with the skill → without it:
 
 | Model | image-updater | literal-password | fetch-before-editing | Mean Δ |
 |---|---|---|---|---|
-| `claude-opus-5-5` | 1.00 → 0.60 | 1.00 → 0.33 | 1.00 → 1.00 | **+0.36** ($2.39 for 18 runs) |
+| `claude-opus-5-5` | 1.00 → 0.60 | 1.00 → 0.33 | 1.00 → 1.00 | **+0.36** (18 runs, est. $2.39 at API prices; not billed) |
 | `qwen3.6:35b` (planner) | 0.67 → 0.60 | 0.22 → 0.33 | 0.17 → 0.50 | −0.13 |
 | `qwen3-coder-next` (executor) | 0.00 → 0.00 | 0.44 → 0.44 | 0.00 → 0.00 | 0.00; hit `max_turns` in 8 of 12 runs of the first two cases |
 

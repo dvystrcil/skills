@@ -203,6 +203,26 @@ class SkillEvalsRunner(unittest.TestCase):
         self.assertRegex(table, r"needs-bash \| 0\.00 \| 0\.20 \| -0\.20 \| .*hit max_turns: with 3/3, without 2/3")
         self.assertNotRegex(table, r"needs-bash \|.*ERROR")
 
+    def test_timed_out_runs_are_scored_and_counted(self):
+        # A case's timeout_seconds is a wall-clock cap; the eval still grades
+        # what the run did before it. On the 2026-11-14 qwen3.6:35b x10 run,
+        # 13 of 160 runs timed out, and treating that as a harness error
+        # blanked three whole cases (batch-lane, image-updater,
+        # two-versus-one) to ERROR even though all 20 runs of each had scores.
+        timed = result("needs-bash", [1, 0.5], [0, 0], error="timed out after 300s")
+        timed["cases"][0]["arms"]["with"][0]["error"] = None
+        self.results.write_text(json.dumps({
+            "needs-bash": timed,
+            "no-bash": result("no-bash", [1], [0]),
+        }))
+        p, _, out = self.run_runner("--model", "sonnet")
+        table = (out / "sonnet.md").read_text()
+        self.assertRegex(table, r"needs-bash \| 0\.75 \| 0\.00 \| \+0\.75 \| .*timed out: with 1/2, without 2/2")
+        self.assertNotRegex(table, r"needs-bash \|.*ERROR")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        row = json.loads((out / "sonnet.json").read_text())["cases"][0]
+        self.assertEqual(row["timed_out"], {"with": 1, "without": 2})
+
     def _with_skill_grader(self, fired: list[bool], without_failed=()):
         """no-bash gets a `tool_used: Skill` grader; canned runs report it.
 

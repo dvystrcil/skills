@@ -46,20 +46,55 @@ two places:
 
 1. **Inside Claude Code's own Bash sandbox.** Run the command from a shell, or
    from an unsandboxed Bash call.
-2. **On Ubuntu with `kernel.apparmor_restrict_unprivileged_userns=1`**, which
-   is this laptop. The stock `bwrap-userns-restrict` AppArmor profile lets
-   `bwrap` create a namespace but strips capabilities from its children, so the
-   seccomp helper fails with `apply-seccomp: write /proc/self/setgroups ...
-   Permission denied`. Every Bash call in the eval then fails, both arms score
-   0, and it looks like "no skill effect". Fixes per
-   https://code.claude.com/docs/en/sandboxing: an AppArmor profile granting
-   `userns` to `/usr/bin/bwrap`, or `sysctl -w
-   kernel.apparmor_restrict_unprivileged_userns=0` (lasts until reboot).
-   Until one is applied, Bash cases carry the tag `needs-bash` and stay out of
-   the `default` run.
+2. **On Ubuntu with the stock `bwrap-userns-restrict` AppArmor profile
+   loaded**, which is this laptop. That profile moves every child of
+   `/usr/bin/bwrap` into `unpriv_bwrap`, which strips capabilities, so the
+   eval's seccomp helper fails with `apply-seccomp: write /proc/self/setgroups
+   ... Permission denied`. Every Bash call in the eval then fails, both arms
+   score 0, and it looks like "no skill effect".
+
+   **`sysctl kernel.apparmor_restrict_unprivileged_userns=0` does NOT fix
+   this.** Tested 2026-11-13: with the sysctl at 0, the profile still applies,
+   nested `bwrap` still fails and the Bash case still scores 0/0. That sysctl
+   covers a different failure (bwrap unable to create any namespace at all).
+   The fix is to swap the stock profile for the one in
+   https://code.claude.com/docs/en/sandboxing, which leaves bwrap's children
+   unconfined. Both profiles are named `bwrap`, so the stock one has to be
+   unloaded and disabled first. See the "AppArmor swap" commands below. Until
+   that's applied, Bash cases carry the tag `needs-bash` and stay out of the
+   `default` run.
+
+   Check: `bwrap --ro-bind / / --unshare-user --dev /dev bwrap --ro-bind / /
+   --unshare-user --dev /dev true` must succeed.
 
 Also needs `socat` and `bwrap` installed, or a run that grants Bash is refused
 before it starts.
+
+### AppArmor swap (needs sudo)
+
+**Trade-off:** the stock profile exists so that unprivileged code can't use
+`bwrap` to get around the user-namespace restriction. The replacement leaves
+`bwrap` unconfined, so that bypass becomes possible on this host again. This
+is the configuration Claude Code's docs recommend for its sandbox.
+
+```bash
+sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
+sudo ln -s /etc/apparmor.d/bwrap-userns-restrict /etc/apparmor.d/disable/
+sudo tee /etc/apparmor.d/bwrap > /dev/null <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/bwrap>
+}
+EOF
+sudo apparmor_parser -r /etc/apparmor.d/bwrap
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1   # restore the default
+```
+
+Undo it with `sudo rm /etc/apparmor.d/bwrap /etc/apparmor.d/disable/bwrap-userns-restrict`
+followed by `sudo systemctl reload apparmor`.
 
 ## Cases (AC2) and the with/without proof (AC4)
 

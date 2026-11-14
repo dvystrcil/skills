@@ -60,15 +60,37 @@ two places:
    The fix is to swap the stock profile for the one in
    https://code.claude.com/docs/en/sandboxing, which leaves bwrap's children
    unconfined. Both profiles are named `bwrap`, so the stock one has to be
-   unloaded and disabled first. See the "AppArmor swap" commands below. Until
-   that's applied, Bash cases carry the tag `needs-bash` and stay out of the
-   `default` run.
+   unloaded and disabled first. See the "AppArmor swap" commands below
+   (applied on the laptop 2026-11-13).
 
-   Check: `bwrap --ro-bind / / --unshare-user --dev /dev bwrap --ro-bind / /
-   --unshare-user --dev /dev true` must succeed.
+   Check: `bwrap --ro-bind / / --unshare-user --dev /dev --proc /proc bwrap
+   --ro-bind / / --unshare-user --dev /dev --proc /proc true` must succeed.
+   Without `--proc /proc`, the inner bwrap fails with `setting up uid map:
+   Read-only file system` even when everything is fine.
+3. **When the eval's run root is under `/tmp`.** `claude plugin eval` creates
+   each run's sandbox under `os.tmpdir()`. Under `/tmp`, its sandbox mounts
+   the case cwd, `$HOME` (including the repo the agent is meant to commit
+   to) and its own `TMPDIR` read-only. A probe got read-only on all five paths
+   it tried under `/tmp`, and writable on all five with the root under
+   `~/.cache`. `bin/skill-evals.py` therefore sets `TMPDIR` to
+   `$XDG_CACHE_HOME/skill-evals/tmp` (override: `SKILL_EVALS_TMPDIR`). If you
+   call `claude plugin eval` directly, set `TMPDIR` yourself.
 
 Also needs `socat` and `bwrap` installed, or a run that grants Bash is refused
 before it starts.
+
+### Writing a Bash case: what the eval sandbox allows
+
+- **Don't `git init` a fixture repo.** The sandbox makes any `.git` it finds
+  under the case read-only. The one writable repo is the eval's own
+  (`$HOME/.git`, whose work tree contains the case cwd), so commit the fixture
+  there. A bare remote can live next to it (see `git-workflow/fetch-before-editing`).
+- **Graders can't read `.git`.** File graders only accept paths inside the
+  cwd. `..` and symlinks that leave it are both refused, and git hooks don't
+  run inside the sandbox. Grade git outcomes through the Bash commands in the
+  trace (`tool_used` with `input_match`, or a `regex` over `trace`).
+- **`tool_order` misses chained commands.** `git checkout -b x && git commit`
+  is a single call, and `tool_order` needs the two in separate calls.
 
 ### AppArmor swap (needs sudo)
 
@@ -105,12 +127,13 @@ runs per arm; see `evals/baselines/`.
 |---|---|---|---|
 | `homelab-secrets/literal-password-in-manifest` | `feedback_secret_manifest_in_repo_is_not_hardening`, libreoffice#1→#2 | password never in a Write/Edit input; no literal in `deployment.yaml`; an `InfisicalSecret` written | 1.00 → 0.33 |
 | `homelab-image-updater/filebrowser-stable-channel` | skill's silent-drop + pre-release gotchas; homepage#33→#34, homelab#1421 | `allowTags` under `commonUpdateSettings`; constraint `1.x-0`; no `spec.namespace` | 1.00 → 0.60 |
-| `git-workflow/branch-before-commit` (`needs-bash`) | git-workflow rule 1, homelab#460 | branch-create before first `git commit`; `HEAD` not on `main` | not yet measurable on this host (see above) |
+| `git-workflow/fetch-before-editing` | git-workflow rule 0 (2026-08-09: 7 of 8 "fix" PRs were no-ops); `feedback_check_repo_staleness_before_batch_fix` | ran `git fetch`/`pull`; made no commit (the fix was already on `origin/main`) | 0.50 → 0.00 (sonnet; with-skill runs vary, see baseline) |
 
 ### Dropped by AC4 (passed without the skill, or the skill never fired)
 
 | Case | Pilot with → without | Why dropped |
 |---|---|---|
+| `git-workflow/branch-before-commit` | Opus, 3 runs: 1.00 → 1.00 | The base model branches before committing without being told |
 | `secrets-hygiene/configmap-to-secret-is-not-hardening` | 1.00 → 1.00 | The base model already rejects a `stringData:` "hardening" PR |
 | `three-anchor-truthiness/jvm-heap-on-a-go-service` | 1.00 → 1.00 | The base model reads the Dockerfile unprompted. **The skill never fired** |
 | `three-anchor-truthiness/two-versus-one-drift` | 0.67 → 0.67 | **The skill never fired** in either case |
@@ -143,13 +166,29 @@ is also what makes it reach sessions that never load AGENTS.md.
 
 ## Baseline (AC6): 2026-11-13, `--tag default --runs 3`
 
-Files: `evals/baselines/2026-11-13/<model>.{md,json}`. Mean score with the skill → without it:
+Files: `evals/baselines/2026-11-13/<model>.{md,json}` (second run of the day,
+the first to include the Bash case; the first run is in git history). Mean
+score with the skill → without it:
 
-| Model | image-updater | literal-password | Mean Δ | Notes |
+| Model | image-updater | literal-password | fetch-before-editing | Mean Δ |
 |---|---|---|---|---|
-| `claude-opus-5-5` | 1.00 → 0.67 | 1.00 → 0.33 | **+0.50** | $1.52 for 12 runs |
-| `qwen3.6:35b` (planner) | 1.00 → 0.60 | 0.44 → 0.22 | **+0.31** | via Ollama |
-| `qwen3-coder-next` (executor) | 0.00 → 0.00 | 0.22 → 0.33 | −0.06 | looped to `max_turns` in 7 of 12 runs |
+| `claude-opus-5-5` | 1.00 → 0.60 | 1.00 → 0.33 | 1.00 → 1.00 | **+0.36** ($2.39 for 18 runs) |
+| `qwen3.6:35b` (planner) | 0.67 → 0.60 | 0.22 → 0.33 | 0.17 → 0.50 | −0.13 |
+| `qwen3-coder-next` (executor) | 0.00 → 0.00 | 0.44 → 0.44 | 0.00 → 0.00 | 0.00; hit `max_turns` in 8 of 12 runs of the first two cases |
+
+**How much these numbers move between runs:**
+
+- **Opus is stable.** The first run of the day gave image-updater 1.00 → 0.67
+  and literal-password 1.00 → 0.33.
+- **qwen3.6:35b isn't.** Its first run gave image-updater 1.00 → 0.60 and
+  literal-password 0.44 → 0.22, a mean Δ of **+0.31**. The second gave
+  **−0.13**, and nothing that affects those two cases changed in between. Three
+  runs per arm is not enough to read a skill effect off the local models; treat
+  a qwen Δ as noise unless it holds across repeated baselines.
+- **`fetch-before-editing` depends on the model.** Opus fetches without being
+  told, so for Opus this case tests the base model. In a sonnet pilot it
+  discriminated (with 0.50 → without 0.00). It stays in the suite as the git
+  case for models that don't fetch on their own.
 
 Under the Claude Code harness, `qwen3-coder-next` mostly loops until it hits
 the turn cap. That is a finding about driving it through Claude Code's
@@ -166,6 +205,7 @@ Compare a later run against these files: `bin/skill-evals.py --tag default
 - **AC5 (CI on PRs touching `claude/*/SKILL.md`)**: the runner needs a Claude
   credential and a host whose sandbox can nest user namespaces. Neither is on
   `skills-runner` today. Follow-up.
-- **More cases toward 10–20 (AC2)**: most remaining candidates need Bash
-  (`batch-lane`, `file-issue`, `change-validation`, `git-workflow` YAML and
-  fetch-first), which is blocked on the AppArmor fix above.
+- **More cases toward 10–20 (AC2)**: Bash cases run now. Next candidates:
+  `batch-lane` (submit, don't run in-session), `file-issue` (hand drafting to
+  `bin/draft-issue.py`), `change-validation`, and `git-workflow`'s YAML
+  round-trip rule.

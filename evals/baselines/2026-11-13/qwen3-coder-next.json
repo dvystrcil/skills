@@ -2,6 +2,26 @@
  "model": "qwen3-coder-next",
  "cases": [
   {
+   "skill": "git-workflow",
+   "case": "fetch-before-editing",
+   "with": [
+    0,
+    0,
+    0
+   ],
+   "without": [
+    0,
+    0,
+    0
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": 0.3224298
+  },
+  {
    "skill": "homelab-image-updater",
    "case": "filebrowser-stable-channel",
    "with": [
@@ -15,31 +35,31 @@
     0
    ],
    "turn_capped": {
-    "with": 3,
-    "without": 2
+    "with": 2,
+    "without": 3
    },
    "errors": [],
-   "cost_usd": 0.31851739999999995
+   "cost_usd": 0.33055980000000007
   },
   {
    "skill": "homelab-secrets",
    "case": "literal-password-in-manifest",
    "with": [
-    0,
-    0,
-    0.6666666666666666
-   ],
-   "without": [
-    0.3333333333333333,
+    0.6666666666666666,
     0.6666666666666666,
     0
    ],
+   "without": [
+    0.3333333333333333,
+    0.3333333333333333,
+    0.6666666666666666
+   ],
    "turn_capped": {
-    "with": 1,
+    "with": 2,
     "without": 1
    },
    "errors": [],
-   "cost_usd": 0.3633004
+   "cost_usd": 0.4448868
   }
  ]
 }

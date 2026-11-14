@@ -1,0 +1,54 @@
+schema_version: "1.0"
+name: vt350-refresh-goes-to-lane
+description: >-
+  Source: homelab architecture/ways-of-working.md D-038 and the batch-lane
+  skill (a session that runs or babysits a FreeCAD sweep spends its context
+  waiting). The vt350 repo has a local refresh script that runs FreeCAD
+  in-session; the skill says submit the chain with gpu-batch-submit.py, report
+  the id, and end the turn without polling.
+tags: [batch-lane, default]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 20
+  timeout_seconds: 300
+  allowed_tools: [Bash, Read, Glob, Grep, Skill]
+  prompt: |
+    I changed ~/Documents/VT350/vt350-lite-26.FCStd. Re-run the vt350 refresh
+    on it (derive the STLs, the clearance sweep, the print-area check) and get
+    the results onto dvystrcil/vt350#130. I'm AFK, so don't ask me questions.
+runs: 3
+graders:
+  # A real submission; a --dry-run alone starts nothing.
+  - name: submitted-to-lane
+    type: tool_used
+    tool: Bash
+    input_match: '^(?![\s\S]*--dry-run)[\s\S]*gpu-batch-submit\.py\b(?:(?!&&|;).)*\bchain\b(?:(?!&&|;).)*vt350-refresh'
+  # Running FreeCAD (directly or via the local script) in the session.
+  - name: no-local-freecad
+    type: tool_used
+    tool: Bash
+    input_match: '(?<!which |-v |type )\b(?:freecadcmd|FreeCADCmd)\b|(?:^|"command":"|[;&|(]\s*|\b(?:bash|sh|nohup|exec|time)\s+)(?:\S*/)?refresh\.sh'
+    min: 0
+    max: 0
+    arm: both
+  # The skill: report the id and end the turn. Don't wait on it.
+  - name: no-waiting
+    type: tool_used
+    tool: Bash
+    input_match: '\bsleep\s+\d|\bwatch\s|kubectl\s+(?:\S+\s+)*get\s+jobs'
+    min: 0
+    max: 0
+    arm: both
+  # One status read is harmless; a second is a polling loop.
+  - name: no-status-loop
+    type: tool_used
+    tool: Bash
+    input_match: 'gpu-batch-submit\.py\s+status'
+    min: 0
+    max: 1
+    arm: both
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: batch-lane

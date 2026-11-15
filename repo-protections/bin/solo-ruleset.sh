@@ -61,9 +61,17 @@ declare -A DIRECT_PUSH_APPS=(
 # Anywhere else, audit.sh flags a hand-made Ruleset and
 # `apply.sh --replace-hand-made` folds it into main-protection. Each entry
 # names what has to happen before it can move.
-# Empty since 2026-11-12 (gateway-services: PINNED_CHECKS; klipper-backup: its
-# own App in DIRECT_PUSH_APPS).
+# Empty from 2026-11-12 (gateway-services: PINNED_CHECKS; klipper-backup: its
+# own App in DIRECT_PUSH_APPS) until diary below.
 declare -A HAND_MADE_RULESETS=(
+  # Claude's working diary. Owner decision 2026-11-15: entries are committed
+  # and pushed to main directly by the agent session, with no PR. It holds no
+  # code, nothing deploys from it, and nothing reads it automatically. Its
+  # `diary-history` Ruleset keeps the history safe (deletion + non_fast_forward,
+  # no bypass actors) and requires no PR. The matching Claude Code side is a
+  # repo-scoped autoMode.allow rule in ~/.claude/settings.json. To move it to
+  # main-protection: stop direct pushes, then apply.sh --replace-hand-made.
+  [dvystrcil/diary]="direct push of diary entries by design; diary-history blocks force-push and deletion"
 )
 # Required checks that main-protection keeps whatever recent PR history shows,
 # ';'-separated. derive_required_checks only requires what ran on EVERY one of

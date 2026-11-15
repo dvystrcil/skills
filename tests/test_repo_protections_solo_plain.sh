@@ -299,7 +299,12 @@ aud "$HAND" HAND_MADE_RULESETS_OVERRIDE='o/r=kept for a reason'
 grep -q '✗' <<<"$out" && bad "recorded hand-made exception flagged" || ok "recorded hand-made exception passes"
 grep -qE 'hand-made.*kept for a reason' <<<"$out" && ok "says why it is an exception" || bad "exception reason not shown"
 n_exc=$(awk '/^declare -A HAND_MADE_RULESETS=\(/{f=1;next} f&&/^\)/{f=0} f&&/^[[:space:]]*\[/' "$BIN/solo-ruleset.sh" | wc -l)
-[ "$n_exc" -eq 0 ] && ok "HAND_MADE_RULESETS is empty (no repo excepted)" || bad "HAND_MADE_RULESETS has $n_exc entries"
+# Exactly one recorded exception: dvystrcil/diary, which takes direct pushes to
+# main by design (homelab-heartbeat#20 session, 2026-11-15). Any other entry is
+# a new policy hole and has to change this line on purpose.
+[ "$n_exc" -eq 1 ] && ok "HAND_MADE_RULESETS has exactly one entry" || bad "HAND_MADE_RULESETS has $n_exc entries, want 1 (diary)"
+grep -qE '^\s*\[dvystrcil/diary\]="[^"]*direct push' "$BIN/solo-ruleset.sh" \
+  && ok "diary's exception says it is for direct pushes" || bad "diary exception missing or doesn't say why"
 grep -qE '^\s*\[dvystrcil/gateway-services\]="[^v]' "$BIN/solo-ruleset.sh" \
   && bad "gateway-services is still a hand-made exception (it pins verify-acs instead)" || ok "gateway-services is no longer an exception"
 for a in 'skills\]="3693085"' 'homelab-heartbeat\]="3592257"' 'neptune-4pro-klipper-backup\]="5732919"'; do

@@ -388,6 +388,8 @@ STUB = textwrap.dedent(
     emit({"type": "tool_use", "part": {"type": "tool", "tool": "write", "id": "w1",
           "state": {"status": "completed", "input": {"path": path, "content": body}, "output": "ok"}}})
     emit({"type": "step_finish", "part": {"type": "step-finish", "reason": "tool-calls"}})
+    if mode == "hang":  # the work is done, but the process outlives the timeout
+        import time; time.sleep(30)
     emit({"type": "step_start", "part": {"type": "step-start"}})
     emit({"type": "text", "part": {"type": "text", "text": "done"}})
     emit({"type": "step_finish", "part": {"type": "step-finish", "reason": "stop"}})
@@ -502,6 +504,21 @@ class EndToEnd(unittest.TestCase):
         row = json.loads((self.out / "qwen3-coder-next.opencode.json").read_text())["cases"][0]
         self.assertEqual(row["turn_capped"], {"with": 1, "without": 1})
         self.assertIn("hit max_turns", p.stdout)
+
+    def test_timed_out_run_is_scored_and_counted_not_an_error(self):
+        # skills#120's first live CI run: one slow run in 20 blanked the whole
+        # case to ERROR and failed the gate, though all 20 were graded. The
+        # claude harness already scores timeouts (skills#123); this one must too.
+        case = self.repo / "claude" / "demo" / "evals" / "writes-good" / "case.yaml"
+        case.write_text(case.read_text().replace("timeout_seconds: 60", "timeout_seconds: 2"))
+        p = self.run_runner("--runs", "1", "--gate", mode="hang")
+        row = json.loads((self.out / "qwen3-coder-next.opencode.json").read_text())["cases"][0]
+        self.assertEqual(row["errors"], [])
+        self.assertEqual(row["timed_out"], {"with": 1, "without": 1})
+        self.assertEqual((row["with"], row["without"]), ([1.0], [0.0]))
+        self.assertIn("timed out: with 1/1, without 1/1", p.stdout)
+        self.assertIn("PASS: skill demo case writes-good", p.stdout)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
     def test_claude_models_are_refused(self):
         # An unknown alias goes to Ollama, so `--model claude-opus-5-5` would

@@ -48,7 +48,7 @@ jobs:
   skill-evals:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: skills-evals-runner
-    # 10 runs per arm is ~16 min per case on qwen3-coder-next (2026-11-14).
+    # 10 runs per arm is ~12 min per case on qwen3-coder-next (37 s/run, 2026-11-14).
     timeout-minutes: 360
     env:
       MODEL: qwen3-coder-next

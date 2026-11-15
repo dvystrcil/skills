@@ -362,6 +362,8 @@ class SkillEvalsGate(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout)
         self.assertIn("NOW PASSES: skill git-workflow case needs-bash", p.stdout)
         self.assertIn("evals/known-failing.txt", p.stdout)
+        # The entry's reason is shown: some are listed because a pass is noise.
+        self.assertIn("was failing", p.stdout)
 
     def test_known_failing_entry_naming_no_case_is_an_error(self):
         # A typo would otherwise waive nothing, silently.

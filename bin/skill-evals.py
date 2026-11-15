@@ -257,7 +257,8 @@ def gate(rows: list[dict], known: dict[str, str]) -> tuple[list[str], bool]:
         if key in known and verdict != "pass":
             lines.append(f"KNOWN: {why} [{known[key]}]")
         elif key in known:
-            lines.append(f"NOW PASSES: {why}: remove it from {KNOWN_FAILING}")
+            lines.append(f"NOW PASSES: {why}: if it keeps passing, remove it from "
+                         f"{KNOWN_FAILING} [{known[key]}]")
         elif verdict == "pass":
             lines.append(f"PASS: {why}")
         else:

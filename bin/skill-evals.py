@@ -242,7 +242,8 @@ def load_known_failing(repo: Path, all_cases: list[dict]) -> dict[str, str]:
 
 def gate(rows: list[dict], known: dict[str, str]) -> tuple[list[str], bool]:
     """The PR rule (skills#120 AC2): a case fails if its skill never fired in
-    the with arm, or with does not beat without. Known-failing cases are
+    the with arm, or Δ (with − without) does not clear twice its standard
+    error, computed from the run's own scores. Known-failing cases are
     reported and don't fail; one that now passes says so."""
     lines, failed = [], False
     for r in rows:
@@ -252,12 +253,16 @@ def gate(rows: list[dict], known: dict[str, str]) -> tuple[list[str], bool]:
             verdict, why = "error", f"{name} errored: {r['errors'][0]}"
         else:
             d = mean(r["with"]) - mean(r["without"])
+            se = delta_se(r["with"], r["without"])
             fired = r.get("fired")
             fired_s = f"{sum(fired)}/{len(fired)}" if fired is not None else "—"
             never = fired is not None and not any(fired)
-            verdict = "fail" if never or d <= 0 else "pass"
-            why = (f"{name} fired {fired_s} or delta <= 0 (fired {fired_s}, Δ {d:+.2f})"
-                   if verdict == "fail" else f"{name} (fired {fired_s}, Δ {d:+.2f})")
+            # Δ must clear twice its standard error: `delta <= 0` passed a
+            # gutted skill on one partial run in ten (skills#120 AC2, live).
+            verdict = "fail" if never or d <= 2 * se else "pass"
+            stats = f"fired {fired_s}, Δ {d:+.2f}, SE {se:.2f}"
+            why = (f"{name} fired {fired_s} or delta <= 2·SE ({stats})"
+                   if verdict == "fail" else f"{name} ({stats})")
         if key in known and verdict != "pass":
             lines.append(f"KNOWN: {why} [{known[key]}]")
         elif key in known:
@@ -269,6 +274,14 @@ def gate(rows: list[dict], known: dict[str, str]) -> tuple[list[str], bool]:
             lines.append(f"FAIL: {why}")
             failed = True
     return lines, failed
+
+
+def delta_se(with_scores: list[float], without_scores: list[float]) -> float:
+    """Standard error of mean(with) − mean(without), arms independent."""
+    def var_of_mean(xs):
+        m = mean(xs)
+        return sum((x - m) ** 2 for x in xs) / len(xs) / len(xs)
+    return (var_of_mean(with_scores) + var_of_mean(without_scores)) ** 0.5
 
 
 def mean(xs):

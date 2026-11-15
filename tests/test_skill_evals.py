@@ -223,7 +223,8 @@ class SkillEvalsRunner(unittest.TestCase):
         row = json.loads((out / "sonnet.json").read_text())["cases"][0]
         self.assertEqual(row["timed_out"], {"with": 1, "without": 2})
 
-    def _with_skill_grader(self, fired: list[bool], without_failed=()):
+    def _with_skill_grader(self, fired: list[bool], without_failed=(),
+                           with_scores=None, without_scores=None):
         """no-bash gets a `tool_used: Skill` grader; canned runs report it.
 
         Under ablation that grader is display-only (`scored: false`), so the
@@ -235,7 +236,8 @@ class SkillEvalsRunner(unittest.TestCase):
         case_yaml.write_text(case_yaml.read_text() + (
             "  - {name: skill-fired, type: tool_used, tool: Skill,"
             " input_match: homelab-secrets}\n"))
-        res = result("no-bash", [1] * len(fired), [0.5] * len(fired))
+        res = result("no-bash", with_scores or [1] * len(fired),
+                     without_scores or [0.5] * len(fired))
         for run, f in zip(res["cases"][0]["arms"]["with"], fired):
             run["graders"] = [
                 {"name": "g", "passed": True, "scored": True},
@@ -319,7 +321,7 @@ class SkillEvalsGate(unittest.TestCase):
     def test_case_with_no_delta_fails(self):
         p, _, _ = self.run_runner("--model", "sonnet", "--gate")
         self.assertEqual(p.returncode, 1, p.stdout)
-        self.assertIn("FAIL: skill homelab-secrets case no-bash fired 0/N or delta <= 0",
+        self.assertIn("FAIL: skill homelab-secrets case no-bash fired 0/N or delta <= 2·SE",
                       p.stdout.replace("fired —", "fired 0/N"))
         self.assertNotIn("case needs-bash fired", p.stdout)
 
@@ -327,7 +329,7 @@ class SkillEvalsGate(unittest.TestCase):
         self._with_skill_grader([False, False])
         p, _, _ = self.run_runner("--model", "sonnet", "--gate", "--case", "no-bash")
         self.assertEqual(p.returncode, 1, p.stdout)
-        self.assertIn("FAIL: skill homelab-secrets case no-bash fired 0/2 or delta <= 0",
+        self.assertIn("FAIL: skill homelab-secrets case no-bash fired 0/2 or delta <= 2·SE",
                       p.stdout)
 
     def test_fires_and_beats_without_passes(self):
@@ -335,6 +337,27 @@ class SkillEvalsGate(unittest.TestCase):
         p, _, _ = self.run_runner("--model", "sonnet", "--gate")
         self.assertEqual(p.returncode, 0, p.stdout)
         self.assertIn("PASS: skill homelab-secrets case no-bash", p.stdout)
+
+    def test_one_lucky_run_is_not_a_skill_effect(self):
+        # skills#120 AC2, live: file-issue with a generic description and no
+        # body scored with 0.05 vs without 0.00 (one partial run in ten), and
+        # `delta <= 0` passed it. Δ must clear twice its standard error.
+        self._with_skill_grader([True] * 10, with_scores=[0.5] + [0] * 9,
+                                without_scores=[0] * 10)
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate", "--case", "no-bash")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("FAIL: skill homelab-secrets case no-bash fired 10/10 or delta <= 2·SE",
+                      p.stdout)
+        self.assertIn("SE 0.05", p.stdout)
+
+    def test_a_real_effect_with_noise_in_both_arms_passes(self):
+        # The intact skill's live run: with 0.95, without 0.05.
+        self._with_skill_grader([True] * 10, with_scores=[1] * 9 + [0.5],
+                                without_scores=[0.5] + [0] * 9)
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate", "--case", "no-bash")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("PASS: skill homelab-secrets case no-bash (fired 10/10, Δ +0.90, SE 0.07)",
+                      p.stdout)
 
     def test_errored_case_fails(self):
         self.results.write_text(json.dumps({

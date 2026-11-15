@@ -526,6 +526,11 @@ class EndToEnd(unittest.TestCase):
         self.assertIn("| fired | note | costUsd |", p.stdout)
         self.assertRegex(p.stdout, r"writes-good \|.*\| — \|\n")
 
+    def test_cost_ceiling_is_accepted_and_changes_nothing(self):
+        p = self.run_runner("--runs", "1", "--max-cost-usd", "0.01")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("cost ceiling", p.stdout)
+
     def test_claude_models_are_refused(self):
         # An unknown alias goes to Ollama, so `--model claude-opus-5-5` would
         # otherwise quietly ask Ollama for a model it doesn't have.

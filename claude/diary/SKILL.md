@@ -13,6 +13,13 @@ Written first-person by Claude. Not a status log, not a daily summary, not a cha
 
 The separation between methodology (this skill) and entry content (`$DIARY_PATH`) is deliberate: at a home install the path is personal storage; at a work install it's work-managed storage. The skill is the same; the destination is environment-specific.
 
+## If `DIARY_PATH` can't be resolved
+
+If neither the `~/.claude/CLAUDE.md` block nor the settings fragment exists, the installer never ran on this workstation. **Do not treat that as "no diary": never skip the entry silently.** A practice that's meant to start on its own leaves no error when it stops. There's just no entry. That's how a diary once went silent for two weeks without anyone noticing.
+
+- When an entry is due and the path can't be resolved, say so in your reply: the diary isn't wired up here, and the fix is `DIARY_PATH=<dir> ./install.sh` in `claude-personal-config`.
+- Don't guess a location. A portable skill can't know it, and a wrong guess can land a personal entry in work storage or the reverse. Write the entry to the session's scratch space, and ask the user where it goes.
+
 ## When to write — the trigger
 
 A new entry is written when something *eventful* happens — **not on a schedule**.

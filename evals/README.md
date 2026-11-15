@@ -208,9 +208,32 @@ followed by `sudo systemctl reload apparmor`.
 The table, the gate lines and `--keep` traces go to the job summary and a
 `skill-evals` artifact.
 
-**Claude never runs in CI.** No job passes a Claude model and the workflow
-reads no secret. Claude runs on demand from a local run (see the keep rule
-below), because a CI job would need an API key billed per token.
+**Claude never runs on a PR.** No job in `skill-evals.yml` passes a Claude
+model or reads a secret.
+
+### Claude on demand: `skill-evals-claude.yml` (AC4)
+
+A `workflow_dispatch`-only job for the Claude column: a Claude model change, or
+a fallback candidate. It bills real money (`ANTHROPIC_API_KEY` from Infisical,
+per token; the budget is $30 a month), so it's bounded:
+
+| Guard | Value |
+|---|---|
+| Trigger | dispatch only; never a PR, push or schedule |
+| Scope | `skill` is required; `all` runs every default case |
+| Runs per arm | 3 by default (Claude's scores are far less noisy than qwen's) |
+| Ceiling | `--max-cost-usd` for the **whole run**, default $10, refused above $30. `claude plugin eval`'s own ceiling is per call and the runner calls it once per case, so `bin/skill-evals.py` hands each case what is left and launches none once it's spent |
+| Secret | `secret-name: ANTHROPIC_API_KEY`: one secret, not the prod store |
+
+Cost guide (Opus, 2026-11-13, estimated at API prices): about $0.14 per run,
+~$0.80 per case at 3 runs per arm, ~$6.50 for all 8 cases. The table's
+`costUsd` column and the "Estimated cost" line report each run. Check the
+first real run against the Anthropic console, since the figure is an estimate.
+
+It runs on `skills-runner` (build tier), not the isolated eval runner: it has
+to reach the in-cluster Infisical, which the egress lock blocks, and
+`claude plugin eval` confines the agent's shell with bwrap, which needs user
+namespaces the isolated tier doesn't allow.
 
 ### Where it runs, and why it's safe to
 
@@ -562,7 +585,3 @@ runs. Where qwen loads the skill (file-issue, batch-lane), the effect holds.
   eval can read (see above), so a stub alone isn't enough.
 - **A should-not-fire case for `three-anchor-truthiness`**, now that its
   description is wider (see above).
-- **A Claude job on `workflow_dispatch`.** Claude runs on demand locally for
-  now. A CI job would need an API key (billed per token) and a runner whose
-  sandbox can nest user namespaces for `claude plugin eval`'s bwrap; the
-  isolated tier doesn't allow that.

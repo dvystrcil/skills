@@ -98,7 +98,7 @@ def eval_root() -> Path:
 
 
 def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path,
-             keep: bool = False) -> dict:
+             keep: bool = False, max_cost: float | None = None) -> dict:
     model, base_url = MODELS.get(model_alias, (model_alias, None))
     out_json = workdir / f"{c['skill']}--{c['case']}.json"
     cmd = ["claude", "plugin", "eval", str(c["skill_dir"]),
@@ -111,6 +111,8 @@ def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path,
         cmd += ["--runs", str(runs)]
     if keep:
         cmd.append("--keep-temp")
+    if max_cost is not None:
+        cmd += ["--max-cost-usd", f"{max_cost:.2f}"]
     cmd += ["--allow-tools", *BASE_GRANT, *(["Bash"] if c["bash"] else [])]
 
     env = dict(os.environ)
@@ -158,8 +160,9 @@ def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path,
 
 
 def run_case_opencode(c: dict, model_alias: str, runs: int | None, workdir: Path,
-                      keep: bool = False) -> dict:
-    """Same row shape as run_case, from the opencode harness."""
+                      keep: bool = False, max_cost: float | None = None) -> dict:
+    """Same row shape as run_case, from the opencode harness. A local run
+    costs nothing, so a cost ceiling has nothing to limit."""
     import opencode_eval  # bin/ is sys.path[0] when this runs as a script
 
     model, base_url = MODELS.get(model_alias, (model_alias, OLLAMA))
@@ -288,14 +291,21 @@ def mean(xs):
     return sum(xs) / len(xs) if xs else None
 
 
+def cost(row: dict) -> str:
+    """Estimated cost at API prices (claude plugin eval's costUsd); — for a
+    local run through opencode, which costs nothing (skills#120 AC1)."""
+    c = row.get("cost_usd")
+    return "—" if c is None else f"{c:.2f}"
+
+
 def table(model: str, rows: list[dict]) -> str:
     lines = [f"### {model}", "",
-             "| skill | case | with | without | Δ | fired | note |",
-             "|---|---|---|---|---|---|---|"]
+             "| skill | case | with | without | Δ | fired | note | costUsd |",
+             "|---|---|---|---|---|---|---|---|"]
     for r in rows:
         if r["errors"]:
             err = r["errors"][0].replace("|", "/").replace("\n", " ")
-            lines.append(f"| {r['skill']} | {r['case']} | — | — | — | — | ERROR: {err} |")
+            lines.append(f"| {r['skill']} | {r['case']} | — | — | — | — | ERROR: {err} | {cost(r)} |")
             continue
         w, wo = mean(r["with"]), mean(r["without"])
         d = w - wo
@@ -318,7 +328,7 @@ def table(model: str, rows: list[dict]) -> str:
             # The with arm was the base model too: the delta says nothing.
             never = "skill never fired"
             note = f"{never}; {note}" if note else never
-        lines.append(f"| {r['skill']} | {r['case']} | {w:.2f} | {wo:.2f} | {d:+.2f} | {fired_s} | {note} |")
+        lines.append(f"| {r['skill']} | {r['case']} | {w:.2f} | {wo:.2f} | {d:+.2f} | {fired_s} | {note} | {cost(r)} |")
     scored = [r for r in rows if not r["errors"]]
     if scored:
         w = mean([mean(r["with"]) for r in scored])
@@ -326,7 +336,28 @@ def table(model: str, rows: list[dict]) -> str:
         lines += ["", f"Mean over {len(scored)} scored case(s): with {w:.2f}, "
                       f"without {wo:.2f}, Δ {w - wo:+.2f}. "
                       f"Errored: {len(rows) - len(scored)}."]
+    costs = [r["cost_usd"] for r in rows if r.get("cost_usd") is not None]
+    if costs:
+        lines += ["", f"Estimated cost: ${sum(costs):.2f} at API prices."]
     return "\n".join(lines) + "\n"
+
+
+def run_all(runner, cases, model, runs, work, keep, ceiling):
+    """Run every case; with a ceiling, hand each case what is left of it."""
+    rows, left = [], ceiling
+    for c in cases:
+        if left is None:
+            rows.append(runner(c, model, runs, work, keep=keep))
+            continue
+        if left <= 0:
+            rows.append({"skill": c["skill"], "case": c["case"], "with": [], "without": [],
+                         "errors": [f"not run: cost ceiling ${ceiling:.2f} spent"],
+                         "cost_usd": None, "fired": None})
+            continue
+        row = runner(c, model, runs, work, keep=keep, max_cost=left)
+        left -= row.get("cost_usd") or 0
+        rows.append(row)
+    return rows
 
 
 def main(argv=None) -> int:
@@ -349,6 +380,10 @@ def main(argv=None) -> int:
     ap.add_argument("--gate", action="store_true",
                     help=f"exit 1 if a case's skill never fired or with <= without; "
                          f"cases in {KNOWN_FAILING} are reported, not failed")
+    ap.add_argument("--max-cost-usd", type=float, metavar="USD",
+                    help="ceiling for the whole invocation, at API prices (claude "
+                         "harness): each case gets what is left, and no case "
+                         "launches once it is spent (skills#120)")
     ap.add_argument("--keep", action="store_true",
                     help="keep raw eval JSON under <out>/raw/<model>/ and the "
                          "run sandboxes (traces) under the eval root")
@@ -389,10 +424,11 @@ def main(argv=None) -> int:
         if a.keep:
             work = out / "raw" / slug
             work.mkdir(parents=True, exist_ok=True)
-            rows = [runner(c, model, a.runs, work, keep=True) for c in cases]
+            rows = run_all(runner, cases, model, a.runs, work, True, a.max_cost_usd)
         else:
             with tempfile.TemporaryDirectory(prefix="skill-evals-run-") as work:
-                rows = [runner(c, model, a.runs, Path(work)) for c in cases]
+                rows = run_all(runner, cases, model, a.runs, Path(work), False,
+                               a.max_cost_usd)
         title = f"{model} (opencode)" if a.harness == "opencode" else model
         md = table(title, rows)
         (out / f"{slug}.md").write_text(md)

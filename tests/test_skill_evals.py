@@ -148,6 +148,13 @@ class SkillEvalsRunner(unittest.TestCase):
         self.assertRegex(table, r"no-bash \| 1\.00 \| 1\.00 \| \+0\.00 \| .*no skill effect")
         self.assertIn(table, p.stdout)
 
+    def test_table_has_a_costusd_column(self):
+        # skills#120 AC1. A Claude run reports its estimated API-price cost.
+        _, _, out = self.run_runner("--model", "sonnet")
+        table = (out / "sonnet.md").read_text()
+        self.assertIn("| fired | note | costUsd |", table)
+        self.assertRegex(table, r"needs-bash \|.*\| 0\.10 \|\n")
+
     def test_errored_run_is_reported_not_scored(self):
         self.results.write_text(json.dumps({
             "needs-bash": result("needs-bash", [0], [0],
@@ -300,6 +307,46 @@ class SkillEvalsRunner(unittest.TestCase):
 def git(repo: Path, *args) -> str:
     return subprocess.run(["git", "-C", str(repo), *args], check=True,
                           capture_output=True, text=True).stdout
+
+
+class CostCeiling(unittest.TestCase):
+    """--max-cost-usd: one ceiling for the whole invocation (skills#120 AC4).
+
+    `claude plugin eval --max-cost-usd` caps ONE call, and the runner makes one
+    call per case, so the runner must hand each case what is left of the total
+    and stop launching cases once it is spent. The owner's monthly budget is
+    $30; a Claude run in CI is real per-token billing.
+    """
+    setUp = SkillEvalsRunner.setUp
+    run_runner = SkillEvalsRunner.run_runner
+
+    def ceiling_of(self, calls, case):
+        argv = next(c["argv"] for c in calls if c["argv"][c["argv"].index("--case") + 1] == case)
+        return float(argv[argv.index("--max-cost-usd") + 1])
+
+    def test_each_case_gets_what_is_left_of_the_total(self):
+        p, calls, _ = self.run_runner("--model", "sonnet", "--max-cost-usd", "1")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertAlmostEqual(self.ceiling_of(calls, "needs-bash"), 1.00)
+        self.assertAlmostEqual(self.ceiling_of(calls, "no-bash"), 0.90)  # stub costs 0.10
+
+    def test_no_case_launches_once_the_total_is_spent(self):
+        p, calls, out = self.run_runner("--model", "sonnet", "--max-cost-usd", "0.1")
+        self.assertEqual([c["argv"][c["argv"].index("--case") + 1] for c in calls],
+                         ["needs-bash"])
+        row = next(r for r in json.loads((out / "sonnet.json").read_text())["cases"]
+                   if r["case"] == "no-bash")
+        self.assertIn("cost ceiling", row["errors"][0])
+        self.assertEqual(p.returncode, 1)
+
+    def test_total_cost_is_reported(self):
+        _, _, out = self.run_runner("--model", "sonnet")
+        self.assertIn("Estimated cost: $0.20", (out / "sonnet.md").read_text())
+
+    def test_no_ceiling_flag_without_the_option(self):
+        _, calls, _ = self.run_runner("--model", "sonnet")
+        for c in calls:
+            self.assertNotIn("--max-cost-usd", c["argv"])
 
 
 class SkillEvalsGate(unittest.TestCase):

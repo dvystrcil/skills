@@ -34,6 +34,7 @@ on:
       # workflow's safety properties by tests/test_skill_evals_workflow.py (skills#120).
       - "bin/opencode_eval.py"
       - ".github/workflows/skill-evals.yml"
+      - ".github/workflows/skill-evals-claude.yml"
       # Eval cases (case.yaml + scaffold.sh) are checked by tests/test_eval_cases.py.
       - "claude/**/evals/**"
       # skill-sync's CronJob command (tests/test_skill_sync_cronjob.py).

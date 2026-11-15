@@ -169,6 +169,61 @@ sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1   # restore the de
 Undo it with `sudo rm /etc/apparmor.d/bwrap /etc/apparmor.d/disable/bwrap-userns-restrict`
 followed by `sudo systemctl reload apparmor`.
 
+## CI on PRs (skills#120)
+
+`.github/workflows/skill-evals.yml` runs on a PR that changes a
+`claude/*/SKILL.md` or anything under `claude/*/evals/`. Its steps:
+
+1. **Scope.** `--changed-from origin/main` keeps only the cases of the skills
+   the PR touched. It diffs against the merge base, so commits that landed on
+   `main` after the branch was cut don't count. A PR that touches a skill with
+   no cases passes with "nothing to run".
+2. **Run.** `--harness opencode --model qwen3-coder-next --runs 10`, through
+   the in-cluster Ollama Service (`SKILL_EVALS_OLLAMA_URL`). At about 37 s per
+   run (measured: 160 runs in 99 min), one case takes about 12 minutes.
+3. **Gate** (`--gate`). A case fails the job with
+   `FAIL: skill X case Y fired k/N or delta <= 0` if the skill never fired in
+   the with arm, or if the with arm doesn't beat the without arm. An errored
+   case also fails.
+4. **Known failures.** `evals/known-failing.txt` lists cases that already fail
+   the rule on the PR model, one `skill/case  reason` per line. They print
+   `KNOWN:` and don't fail the job, so a PR isn't red for a failure it didn't
+   cause. When one passes, the job prints `NOW PASSES: … remove it`. An entry
+   that names no case, or has no reason, is an error, so a typo can't quietly
+   waive nothing.
+
+   The list holds 6 of the 8 cases (2026-11-14, from the 10-run baseline
+   below). Four fail the rule outright. Two pass it only by noise, so a PR
+   touching them would go red at random:
+   - `git-workflow`: the skill fired 1 in 10 runs, so about a third of PR runs
+     see it fire 0 times;
+   - `homelab-image-updater`: Δ +0.04 against a standard error of 0.13.
+
+   **So today the gate actually guards only `batch-lane` and `file-issue`.**
+   For every other skill the job reports results but can't fail. That's what
+   qwen's numbers support; the fix is in the skills (getting qwen to load
+   them), not in the gate.
+The table, the gate lines and `--keep` traces go to the job summary and a
+`skill-evals` artifact.
+
+**Claude never runs in CI.** No job passes a Claude model and the workflow
+reads no secret. Claude runs on demand from a local run (see the keep rule
+below), because a CI job would need an API key billed per token.
+
+### Where it runs, and why it's safe to
+
+This job runs an agent with a shell on PR code, in a public repo, on our own
+runner. The containment, and what pins each part:
+
+| Layer | What | Pinned by |
+|---|---|---|
+| Who | PRs from this repo's branches only. A fork PR doesn't run: its `scaffold.sh` is arbitrary shell. To evaluate one, read it, push its branch here, and the PR from that branch runs | `tests/test_skill_evals_workflow.py` |
+| Token | `contents: read`, and checkout doesn't persist the token into `.git/config` | same |
+| Secrets | none; no Anthropic credential; the model is a local alias | same |
+| Runner | `skills-evals-runner` in the `arc-isolated` tier: no RBAC, no SA token, non-root, all capabilities dropped. It is **not** `skills-runner`, the privileged build-tier runner the repo's other CI uses | https://github.com/dvystrcil/argocd-projects/pull/355 |
+| Network | DNS, public internet, the Ollama pod on 11434. No other pod or Service, no apiserver, no LAN | https://github.com/dvystrcil/arc-runners/pull/28, with a kind test |
+| Sandbox | bwrap is off (`SKILL_EVALS_OPENCODE_SANDBOX=0`): the pod is the sandbox, and it holds nothing for bwrap to hide | the workflow |
+
 ## Keep rule (decided 2026-11-14)
 
 Decision: https://github.com/dvystrcil/skills/issues/72#issuecomment-6881730933
@@ -462,18 +517,41 @@ Compare a later run against the baseline files: `bin/skill-evals.py --tag defaul
 (Claude models), or `bin/skill-evals.py --harness opencode --runs 3 --out /tmp/x && diff
 evals/baselines/2026-11-14/qwen3-coder-next.opencode.md /tmp/x/qwen3-coder-next.opencode.md`.
 
+## Baseline: 2026-11-14, `--harness opencode`, all 8 cases, `--runs 10`
+
+`qwen3-coder-next`, 160 runs in 99 min (about 37 s per run). Files:
+`evals/baselines/2026-11-14/x10/qwen3-coder-next.opencode.{md,json}`. 0 errored;
+one run hit `max_turns` (file-issue, with arm). SE is the standard error of Δ.
+
+| Case | with → without (Δ) | SE | fired | 3-run Δ (above) |
+|---|---|---|---|---|
+| `file-issue/follow-up-goes-to-draft-issue` | 1.00 → 0.00 (**+1.00**) | 0.00 | 10/10 | +1.00 |
+| `batch-lane/vt350-refresh-goes-to-lane` | 0.95 → 0.65 (**+0.30**) | 0.06 | 6/10 | +0.25 |
+| `homelab-secrets/literal-password-in-manifest` | 0.27 → 0.17 (+0.10) | 0.08 | 0/10 | +0.22 |
+| `git-workflow/fetch-before-editing` | 0.05 → 0.00 (+0.05) | 0.05 | 1/10 | 0.00 |
+| `homelab-image-updater/filebrowser-stable-channel` | 0.46 → 0.42 (+0.04) | 0.13 | 1/10 | +0.53 |
+| `change-validation/worker-bump-before-after` | 0.33 → 0.33 (0) | 0.00 | 0/10 | 0.00 |
+| `three-anchor-truthiness/two-versus-one-drift` | 0.07 → 0.07 (0) | 0.09 | 1/10 | 0.00 |
+| `three-anchor-truthiness/jvm-heap-on-a-go-service` | 0.20 → 0.25 (−0.05) | 0.11 | 0/10 | +0.17 |
+
+Mean with 0.42, without 0.24, Δ +0.18 (3 runs: +0.27). The 3-run numbers
+were noise where the skill rarely fired: image-updater's +0.53 is +0.04 at 10
+runs. Where qwen loads the skill (file-issue, batch-lane), the effect holds.
+
 ## Not done yet
 
-- **opencode harness at ~10 runs per arm**, the local-first keep rule's sample
-  size (skills#72), and for `qwen3.6:35b` too. One 3-run baseline exists.
-- **Skills qwen doesn't load under opencode**: git-workflow, homelab-secrets
-  and both three-anchor cases fired 0/3. That is a description/triggering
-  question per skill.
+- **`qwen3.6:35b` on the opencode harness at 10 runs per arm.** qwen3-coder-next
+  has one (above); qwen3.6 has one only under `claude plugin eval`.
+- **Skills qwen doesn't load under opencode** (10 runs per arm): change-validation
+  and homelab-secrets 0/10, both three-anchor cases 0/10 and 1/10,
+  git-workflow and image-updater 1/10. That is a description/triggering
+  question per skill, and the way to shrink `evals/known-failing.txt`.
+- **Runs per arm vs. noise.** At 10 runs, Δ's standard error is 0.05–0.13 per
+  case. To resolve a Δ of 0.1 at two standard errors, image-updater would need
+  about 70 runs per arm. The gate's `delta <= 0` takes no account of noise; a
+  rule like Δ > 2·SE would need more runs per case than a PR can wait for.
 - **Cases that withhold Bash** measure in part how the model copes without a
   shell (qwen invents shell tools), not only the skill.
-- **AC5 (CI on PRs touching `claude/*/SKILL.md`)**: the runner needs a Claude
-  credential and a host whose sandbox can nest user namespaces. Neither is on
-  `skills-runner` today. Follow-up.
 - **More cases toward 10–20 (AC2)**: 8 kept so far. Candidates by the pattern
   above (knowledge-carrying skills): `n8n-import-workflow`,
   `owui-import-pipeline`, `upgrade-validate`, `pgo-pre-upgrade-backup`. Each
@@ -482,4 +560,7 @@ evals/baselines/2026-11-14/qwen3-coder-next.opencode.md /tmp/x/qwen3-coder-next.
   eval can read (see above), so a stub alone isn't enough.
 - **A should-not-fire case for `three-anchor-truthiness`**, now that its
   description is wider (see above).
-- **Running the evals on PRs (part 4)** needs its own design and issue.
+- **A Claude job on `workflow_dispatch`.** Claude runs on demand locally for
+  now. A CI job would need an API key (billed per token) and a runner whose
+  sandbox can nest user namespaces for `claude plugin eval`'s bwrap; the
+  isolated tier doesn't allow that.

@@ -34,7 +34,8 @@ from pathlib import Path
 
 import yaml
 
-OLLAMA = "https://ollama.sirddail.net"
+# CI overrides this with the in-cluster Service (skills#120).
+OLLAMA = os.environ.get("SKILL_EVALS_OLLAMA_URL") or "https://ollama.sirddail.net"
 
 # alias -> (model id passed to --model, base URL or None for Anthropic)
 MODELS = {
@@ -191,6 +192,81 @@ def run_case_opencode(c: dict, model_alias: str, runs: int | None, workdir: Path
     return row
 
 
+KNOWN_FAILING = Path("evals") / "known-failing.txt"
+
+
+def changed_skills(repo: Path, ref: str) -> set[str]:
+    """Skills whose SKILL.md or evals/ the branch changed since it left REF.
+
+    Three-dot diff: against the merge base, so commits that landed on REF after
+    the branch was cut don't count as this branch's changes.
+    """
+    out = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", f"{ref}...HEAD"],
+                         check=True, capture_output=True, text=True).stdout
+    skills = set()
+    for path in out.splitlines():
+        parts = path.split("/")
+        if len(parts) >= 3 and parts[0] == "claude" and (
+                parts[2] == "SKILL.md" or (parts[2] == "evals" and len(parts) > 3)):
+            skills.add(parts[1])
+    return skills
+
+
+def load_known_failing(repo: Path, all_cases: list[dict]) -> dict[str, str]:
+    """`skill/case  reason` per line; # comments. Every entry must name a real
+    case and give a reason, or a typo would quietly waive nothing."""
+    f = repo / KNOWN_FAILING
+    if not f.exists():
+        return {}
+    real = {f"{c['skill']}/{c['case']}" for c in all_cases}
+    known, problems = {}, []
+    for n, line in enumerate(f.read_text().splitlines(), 1):
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        key, _, reason = line.partition(" ")
+        if key not in real:
+            problems.append(f"{KNOWN_FAILING}:{n}: {key} is not an eval case")
+        elif not reason.strip():
+            problems.append(f"{KNOWN_FAILING}:{n}: {key} needs a reason")
+        else:
+            known[key] = reason.strip()
+    if problems:
+        raise ValueError("\n".join(problems))
+    return known
+
+
+def gate(rows: list[dict], known: dict[str, str]) -> tuple[list[str], bool]:
+    """The PR rule (skills#120 AC2): a case fails if its skill never fired in
+    the with arm, or with does not beat without. Known-failing cases are
+    reported and don't fail; one that now passes says so."""
+    lines, failed = [], False
+    for r in rows:
+        key = f"{r['skill']}/{r['case']}"
+        name = f"skill {r['skill']} case {r['case']}"
+        if r["errors"]:
+            verdict, why = "error", f"{name} errored: {r['errors'][0]}"
+        else:
+            d = mean(r["with"]) - mean(r["without"])
+            fired = r.get("fired")
+            fired_s = f"{sum(fired)}/{len(fired)}" if fired is not None else "—"
+            never = fired is not None and not any(fired)
+            verdict = "fail" if never or d <= 0 else "pass"
+            why = (f"{name} fired {fired_s} or delta <= 0 (fired {fired_s}, Δ {d:+.2f})"
+                   if verdict == "fail" else f"{name} (fired {fired_s}, Δ {d:+.2f})")
+        if key in known and verdict != "pass":
+            lines.append(f"KNOWN: {why} [{known[key]}]")
+        elif key in known:
+            lines.append(f"NOW PASSES: {why}: if it keeps passing, remove it from "
+                         f"{KNOWN_FAILING} [{known[key]}]")
+        elif verdict == "pass":
+            lines.append(f"PASS: {why}")
+        else:
+            lines.append(f"FAIL: {why}")
+            failed = True
+    return lines, failed
+
+
 def mean(xs):
     return sum(xs) / len(xs) if xs else None
 
@@ -250,12 +326,32 @@ def main(argv=None) -> int:
     ap.add_argument("--harness", choices=["claude", "opencode"], default="claude",
                     help="claude: `claude plugin eval` (default). opencode: `opencode run`, "
                          "local models only (skills#121)")
+    ap.add_argument("--changed-from", metavar="REF",
+                    help="only cases of skills whose SKILL.md or evals/ changed "
+                         "since the branch left REF (CI on PRs, skills#120)")
+    ap.add_argument("--gate", action="store_true",
+                    help=f"exit 1 if a case's skill never fired or with <= without; "
+                         f"cases in {KNOWN_FAILING} are reported, not failed")
     ap.add_argument("--keep", action="store_true",
                     help="keep raw eval JSON under <out>/raw/<model>/ and the "
                          "run sandboxes (traces) under the eval root")
     a = ap.parse_args(argv)
 
     cases = list(discover(a.repo, a.skill, a.case, a.tag))
+    known = {}
+    if a.gate:
+        try:
+            known = load_known_failing(a.repo, list(discover(a.repo, None, None, None)))
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 2
+    if a.changed_from:
+        touched = changed_skills(a.repo, a.changed_from)
+        cases = [c for c in cases if c["skill"] in touched]
+        if not cases:
+            print(f"no eval cases for the changed skills ({', '.join(sorted(touched)) or 'none'}); "
+                  "nothing to run")
+            return 0
     if not cases:
         print("no eval cases matched", file=sys.stderr)
         return 2
@@ -287,6 +383,10 @@ def main(argv=None) -> int:
             {"model": model, "harness": a.harness, "cases": rows}, indent=1) + "\n")
         print(md)
         failed |= any(r["errors"] for r in rows)
+        if a.gate:
+            lines, gate_failed = gate(rows, known)
+            print(f"Gate ({title}):\n" + "\n".join(lines) + "\n")
+            failed |= gate_failed
     print(f"results: {out}", file=sys.stderr)
     return 1 if failed else 0
 

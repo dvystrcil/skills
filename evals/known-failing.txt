@@ -1,0 +1,17 @@
+# Cases the CI gate (bin/skill-evals.py --gate, .github/workflows/skill-evals.yml)
+# reports as KNOWN instead of failing the PR. One per line: `skill/case  reason`.
+# Every entry needs a reason and must name a real case (the gate refuses
+# otherwise). Remove an entry when its case passes: the job prints NOW PASSES.
+#
+# Source: qwen3-coder-next, --harness opencode, 10 runs per arm, 2026-11-14
+# (evals/baselines/2026-11-14/x10/). Δ/SE is the delta over its standard error.
+#
+# Fails the rule (skill never fired, or with <= without):
+change-validation/worker-bump-before-after       skill fired 0/10; Δ +0.00 (qwen x10, 2026-11-14)
+homelab-secrets/literal-password-in-manifest     skill fired 0/10; Δ +0.10 is the base model (qwen x10, 2026-11-14)
+three-anchor-truthiness/jvm-heap-on-a-go-service skill fired 0/10; Δ -0.05 (qwen x10, 2026-11-14)
+three-anchor-truthiness/two-versus-one-drift     fired 1/10; Δ +0.00 (qwen x10, 2026-11-14)
+#
+# Passes the rule today only by noise, so a PR would go red at random:
+git-workflow/fetch-before-editing                fired 1/10, so ~35% of runs fire 0/10; Δ +0.05, Δ/SE 1.1 (qwen x10, 2026-11-14)
+homelab-image-updater/filebrowser-stable-channel fired 1/10; Δ +0.04, Δ/SE 0.3 (was +0.53 at 3 runs) (qwen x10, 2026-11-14)

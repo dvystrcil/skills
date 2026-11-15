@@ -114,7 +114,9 @@ The flow between layers is mostly one-way: a diary observation, repeated across 
 
 ## After writing
 
-If `$DIARY_PATH` is a git clone (a personal-diary or work-diary repo), the operator pushes entries to the remote on their schedule. The skill just writes the markdown file at the right path; git semantics are operator-managed and outside the skill's scope.
+If `$DIARY_PATH` is a git clone (a personal-diary or work-diary repo), commit the entry and push it yourself in the same turn, straight to the clone's default branch. The diary is the one repo that skips branch + PR: an entry is a snapshot, not a change to review. Run `git fetch` and `git status` first, and commit only the entry's file. Then say in your reply that it's written and pushed, with the path and the commit.
+
+Hand it back only if the commit or push fails (a protected branch, no credentials, a work-managed remote that refuses): say so with the error, and give the operator the exact command. A diary that lives in its own repo is there so the entries are backed up and versioned; an untracked entry is neither.
 
 If `$DIARY_PATH` is a cloud-sync directory (iCloud, Dropbox, etc.), the sync happens automatically and no operator action is needed.
 

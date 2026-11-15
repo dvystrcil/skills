@@ -42,5 +42,33 @@ class UnsetDiaryPathIsLoud(unittest.TestCase):
         self.assertIn("ask the user where", self.section)
 
 
+class GitCloneEntriesArePushed(unittest.TestCase):
+    """2026-11-14: an entry was written and left untracked in the git-clone
+    diary, with the git command handed to the operator, because "After
+    writing" said the operator pushes "on their schedule". The operator: "why
+    are you not pushing your own diary entries? it was the whole point of
+    making it its own repo". The CLAUDE.md block from claude-personal-config
+    (#11) says commit and push; the skill must say the same, not contradict it."""
+
+    def setUp(self):
+        text = SKILL.read_text()
+        m = re.search(r"^## After writing\n(.*?)(?=^## )", text, re.M | re.S)
+        self.assertIsNotNone(m, "missing the After writing section")
+        self.section = m.group(1)
+
+    def test_commits_and_pushes_in_the_same_turn(self):
+        self.assertIn("commit the entry and push it yourself", self.section)
+        self.assertIn("same turn", self.section)
+
+    def test_command_only_when_it_fails(self):
+        # the hand-back, not the push, is what's conditional on a failure
+        self.assertIn("Hand it back only if the commit or push fails", self.section)
+        self.assertIn("give the operator the exact command", self.section)
+
+    def test_no_longer_hands_it_to_the_operator(self):
+        self.assertNotIn("on their schedule", self.section)
+        self.assertNotIn("outside the skill's scope", self.section)
+
+
 if __name__ == "__main__":
     unittest.main()

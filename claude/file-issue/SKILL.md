@@ -60,3 +60,5 @@ and template check are the point.
 The body's `## Lane` says who works it: `opencode` (one repo, known files,
 pattern to copy, no design decision) or `claude`. When picking up a
 `lane: opencode` issue yourself, consider handing it to opencode instead.
+
+<!-- skills#120 AC1/AC3 live test: throwaway, do not merge -->

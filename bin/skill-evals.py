@@ -288,14 +288,21 @@ def mean(xs):
     return sum(xs) / len(xs) if xs else None
 
 
+def cost(row: dict) -> str:
+    """Estimated cost at API prices (claude plugin eval's costUsd); — for a
+    local run through opencode, which costs nothing (skills#120 AC1)."""
+    c = row.get("cost_usd")
+    return "—" if c is None else f"{c:.2f}"
+
+
 def table(model: str, rows: list[dict]) -> str:
     lines = [f"### {model}", "",
-             "| skill | case | with | without | Δ | fired | note |",
-             "|---|---|---|---|---|---|---|"]
+             "| skill | case | with | without | Δ | fired | note | costUsd |",
+             "|---|---|---|---|---|---|---|---|"]
     for r in rows:
         if r["errors"]:
             err = r["errors"][0].replace("|", "/").replace("\n", " ")
-            lines.append(f"| {r['skill']} | {r['case']} | — | — | — | — | ERROR: {err} |")
+            lines.append(f"| {r['skill']} | {r['case']} | — | — | — | — | ERROR: {err} | {cost(r)} |")
             continue
         w, wo = mean(r["with"]), mean(r["without"])
         d = w - wo
@@ -318,7 +325,7 @@ def table(model: str, rows: list[dict]) -> str:
             # The with arm was the base model too: the delta says nothing.
             never = "skill never fired"
             note = f"{never}; {note}" if note else never
-        lines.append(f"| {r['skill']} | {r['case']} | {w:.2f} | {wo:.2f} | {d:+.2f} | {fired_s} | {note} |")
+        lines.append(f"| {r['skill']} | {r['case']} | {w:.2f} | {wo:.2f} | {d:+.2f} | {fired_s} | {note} | {cost(r)} |")
     scored = [r for r in rows if not r["errors"]]
     if scored:
         w = mean([mean(r["with"]) for r in scored])

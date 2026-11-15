@@ -148,6 +148,13 @@ class SkillEvalsRunner(unittest.TestCase):
         self.assertRegex(table, r"no-bash \| 1\.00 \| 1\.00 \| \+0\.00 \| .*no skill effect")
         self.assertIn(table, p.stdout)
 
+    def test_table_has_a_costusd_column(self):
+        # skills#120 AC1. A Claude run reports its estimated API-price cost.
+        _, _, out = self.run_runner("--model", "sonnet")
+        table = (out / "sonnet.md").read_text()
+        self.assertIn("| fired | note | costUsd |", table)
+        self.assertRegex(table, r"needs-bash \|.*\| 0\.10 \|\n")
+
     def test_errored_run_is_reported_not_scored(self):
         self.results.write_text(json.dumps({
             "needs-bash": result("needs-bash", [0], [0],

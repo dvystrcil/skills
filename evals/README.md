@@ -182,9 +182,13 @@ followed by `sudo systemctl reload apparmor`.
    the in-cluster Ollama Service (`SKILL_EVALS_OLLAMA_URL`). At about 37 s per
    run (measured: 160 runs in 99 min), one case takes about 12 minutes.
 3. **Gate** (`--gate`). A case fails the job with
-   `FAIL: skill X case Y fired k/N or delta <= 0` if the skill never fired in
-   the with arm, or if the with arm doesn't beat the without arm. An errored
-   case also fails.
+   `FAIL: skill X case Y fired k/N or delta <= 2·SE` if the skill never fired
+   in the with arm, or if Δ (with − without) doesn't clear twice its standard
+   error, computed from the run's own 20 scores. An errored case also fails.
+   The rule was `delta <= 0` until the live AC2 test: a gutted file-issue
+   skill (generic description, no body) scored with 0.05 vs without 0.00, one
+   partial run in ten, and `delta <= 0` passed it. Under 2·SE it fails
+   (Δ +0.05, SE 0.05), and the intact skill passes (Δ +0.95, SE 0.05).
 4. **Known failures.** `evals/known-failing.txt` lists cases that already fail
    the rule on the PR model, one `skill/case  reason` per line. They print
    `KNOWN:` and don't fail the job, so a PR isn't red for a failure it didn't
@@ -193,11 +197,9 @@ followed by `sudo systemctl reload apparmor`.
    waive nothing.
 
    The list holds 6 of the 8 cases (2026-11-14, from the 10-run baseline
-   below). Four fail the rule outright. Two pass it only by noise, so a PR
-   touching them would go red at random:
-   - `git-workflow`: the skill fired 1 in 10 runs, so about a third of PR runs
-     see it fire 0 times;
-   - `homelab-image-updater`: Δ +0.04 against a standard error of 0.13.
+   below). All six fail the rule. Two of them (`git-workflow`, Δ +0.05 with
+   SE 0.05; `homelab-image-updater`, Δ +0.04 with SE 0.13) passed the old
+   `delta <= 0` rule only by noise.
 
    **So today the gate actually guards only `batch-lane` and `file-issue`.**
    For every other skill the job reports results but can't fail. That's what
@@ -547,9 +549,9 @@ runs. Where qwen loads the skill (file-issue, batch-lane), the effect holds.
   git-workflow and image-updater 1/10. That is a description/triggering
   question per skill, and the way to shrink `evals/known-failing.txt`.
 - **Runs per arm vs. noise.** At 10 runs, Δ's standard error is 0.05–0.13 per
-  case. To resolve a Δ of 0.1 at two standard errors, image-updater would need
-  about 70 runs per arm. The gate's `delta <= 0` takes no account of noise; a
-  rule like Δ > 2·SE would need more runs per case than a PR can wait for.
+  case. The 2·SE gate resolves the large effects (file-issue, batch-lane) at
+  10 runs. A small one, like a Δ of 0.1 on image-updater, would need about 70
+  runs per arm, more than a PR can wait for.
 - **Cases that withhold Bash** measure in part how the model copes without a
   shell (qwen invents shell tools), not only the skill.
 - **More cases toward 10–20 (AC2)**: 8 kept so far. Candidates by the pattern

@@ -6,12 +6,13 @@
 # Source: qwen3-coder-next, --harness opencode, 10 runs per arm, 2026-11-14
 # (evals/baselines/2026-11-14/x10/). Δ/SE is the delta over its standard error.
 #
-# Fails the rule (skill never fired, or with <= without):
+# Each fails the rule: the skill never fired, or Δ <= 2·SE (gate rule since
+# skills#120's live AC2 run; before that the rule was Δ <= 0).
 change-validation/worker-bump-before-after       skill fired 0/10; Δ +0.00 (qwen x10, 2026-11-14)
 homelab-secrets/literal-password-in-manifest     skill fired 0/10; Δ +0.10 is the base model (qwen x10, 2026-11-14)
 three-anchor-truthiness/jvm-heap-on-a-go-service skill fired 0/10; Δ -0.05 (qwen x10, 2026-11-14)
 three-anchor-truthiness/two-versus-one-drift     fired 1/10; Δ +0.00 (qwen x10, 2026-11-14)
 #
-# Passes the rule today only by noise, so a PR would go red at random:
+# These two passed the old Δ <= 0 rule only by noise; under 2·SE they fail it:
 git-workflow/fetch-before-editing                fired 1/10, so ~35% of runs fire 0/10; Δ +0.05, Δ/SE 1.1 (qwen x10, 2026-11-14)
 homelab-image-updater/filebrowser-stable-channel fired 1/10; Δ +0.04, Δ/SE 0.3 (was +0.53 at 3 runs) (qwen x10, 2026-11-14)

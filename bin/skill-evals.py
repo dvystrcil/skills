@@ -165,7 +165,8 @@ def run_case_opencode(c: dict, model_alias: str, runs: int | None, workdir: Path
     model, base_url = MODELS.get(model_alias, (model_alias, OLLAMA))
     n = runs or int(c["spec"].get("runs") or 3)
     row = {"skill": c["skill"], "case": c["case"], "with": [], "without": [],
-           "turn_capped": {"with": 0, "without": 0}, "errors": [], "cost_usd": None,
+           "turn_capped": {"with": 0, "without": 0}, "timed_out": {"with": 0, "without": 0},
+           "errors": [], "cost_usd": None,
            "fired": None, "failed_graders": {"with": {}, "without": {}}}
     for arm in ("with", "without"):
         for i in range(n):
@@ -185,9 +186,12 @@ def run_case_opencode(c: dict, model_alias: str, runs: int | None, workdir: Path
                     row["fired"] = (row["fired"] or []) + [bool(g["passed"])]
             if r["capped"]:
                 row["turn_capped"][arm] += 1
+            elif r["error"] and r["error"].startswith("timed out after"):
+                # A timeout still left a workspace to grade, so it is scored and
+                # counted, like a max_turns run (skills#123); one slow run must
+                # not blank the case (skills#120's first live CI run did).
+                row["timed_out"][arm] += 1
             elif r["error"]:
-                # A timeout still left a workspace to grade, so it is scored;
-                # it is also an error the table must show.
                 row["errors"].append(f"{arm}: {r['error']}"[:200])
     return row
 

@@ -61,6 +61,14 @@ def discover(repo: Path, skill: str | None, case: str | None, tag: str | None):
         if tag and tag not in (spec.get("tags") or []):
             continue
         execution = spec.get("execution") or {}
+        skill_grader = next(
+            (g for g in spec.get("graders") or []
+             if g.get("type") == "tool_used" and g.get("tool") == "Skill"), None)
+        if skill_grader and skill_grader.get("max") == 0 and skill_grader.get("min", 1) != 0:
+            # tool_used defaults min to 1: `max: 0` alone never passes, and
+            # every run would read as a fire (skills#140's first live run).
+            raise ValueError(f"{path}: Skill grader {skill_grader['name']!r} has max: 0 "
+                             "but no min: 0, so it can never pass")
         yield {
             "skill": skill_name,
             "skill_dir": path.parents[2],
@@ -71,10 +79,12 @@ def discover(repo: Path, skill: str | None, case: str | None, tag: str | None):
             "scaffold": bool((spec.get("context") or {}).get("scaffold_script")),
             # Under ablation a `tool_used: Skill` grader is display-only, so
             # the score can't show whether the skill loaded. Read it here.
-            "fired_grader": next(
-                (g["name"] for g in spec.get("graders") or []
-                 if g.get("type") == "tool_used" and g.get("tool") == "Skill"),
-                None),
+            "fired_grader": skill_grader["name"] if skill_grader else None,
+            # A `max: 0` Skill grader passes when the skill did NOT run
+            # (skills#141 reported that as "fired 10/10").
+            "fired_inverted": bool(skill_grader) and skill_grader.get("max") == 0,
+            # Judged on the fire rate alone, not Δ (skills#140).
+            "should_not_fire": spec.get("should_not_fire") is True,
         }
 
 
@@ -95,6 +105,11 @@ def eval_root() -> Path:
         root = Path(cache) / "skill-evals" / "tmp"
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def fired(c: dict, passed) -> bool:
+    """Did the skill run, from its Skill grader's pass/fail."""
+    return bool(passed) != c.get("fired_inverted", False)
 
 
 def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path,
@@ -128,7 +143,8 @@ def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path,
     row = {"skill": c["skill"], "case": c["case"], "with": [], "without": [],
            "turn_capped": {"with": 0, "without": 0},
            "timed_out": {"with": 0, "without": 0}, "errors": [], "cost_usd": None,
-           "fired": None, "failed_graders": {"with": {}, "without": {}}}
+           "fired": None, "failed_graders": {"with": {}, "without": {}},
+           "should_not_fire": c.get("should_not_fire", False)}
     if not out_json.exists():
         tail = (p.stderr or p.stdout).strip().splitlines()[-1:] or [f"exit {p.returncode}"]
         row["errors"].append(f"no result JSON: {tail[0][:200]}")
@@ -144,7 +160,7 @@ def run_case(c: dict, model_alias: str, runs: int | None, workdir: Path,
                         fg = row["failed_graders"][arm]
                         fg[g["name"]] = fg.get(g["name"], 0) + 1
                     if arm == "with" and g.get("name") == c.get("fired_grader"):
-                        row["fired"] = (row["fired"] or []) + [bool(g.get("passed"))]
+                        row["fired"] = (row["fired"] or []) + [fired(c, g.get("passed"))]
                 err = r.get("error") or ""
                 if "Reached maximum number of turns" in err:
                     # The model looped to the cap. The eval still graded the
@@ -170,7 +186,8 @@ def run_case_opencode(c: dict, model_alias: str, runs: int | None, workdir: Path
     row = {"skill": c["skill"], "case": c["case"], "with": [], "without": [],
            "turn_capped": {"with": 0, "without": 0}, "timed_out": {"with": 0, "without": 0},
            "errors": [], "cost_usd": None,
-           "fired": None, "failed_graders": {"with": {}, "without": {}}}
+           "fired": None, "failed_graders": {"with": {}, "without": {}},
+           "should_not_fire": c.get("should_not_fire", False)}
     for arm in ("with", "without"):
         for i in range(n):
             keep_dir = workdir / c["case"] / f"{arm}-{i + 1}" if keep else None
@@ -186,7 +203,7 @@ def run_case_opencode(c: dict, model_alias: str, runs: int | None, workdir: Path
                     fg = row["failed_graders"][arm]
                     fg[g["name"]] = fg.get(g["name"], 0) + 1
                 if arm == "with" and g["name"] == c.get("fired_grader"):
-                    row["fired"] = (row["fired"] or []) + [bool(g["passed"])]
+                    row["fired"] = (row["fired"] or []) + [fired(c, g["passed"])]
             if r["capped"]:
                 row["turn_capped"][arm] += 1
             elif r["error"] and r["error"].startswith("timed out after"):
@@ -247,13 +264,27 @@ def gate(rows: list[dict], known: dict[str, str]) -> tuple[list[str], bool]:
     """The PR rule (skills#120 AC2): a case fails if its skill never fired in
     the with arm, or Δ (with − without) does not clear twice its standard
     error, computed from the run's own scores. Known-failing cases are
-    reported and don't fail; one that now passes says so."""
+    reported and don't fail; one that now passes says so.
+
+    A `should_not_fire` case (skills#140) fails if the skill fired in any
+    with-arm run. It has no with-vs-without effect to measure, so Δ is not
+    judged."""
     lines, failed = [], False
     for r in rows:
         key = f"{r['skill']}/{r['case']}"
         name = f"skill {r['skill']} case {r['case']}"
         if r["errors"]:
             verdict, why = "error", f"{name} errored: {r['errors'][0]}"
+        elif r.get("should_not_fire"):
+            fired_ = r.get("fired")
+            if fired_ is None:
+                verdict, why = "fail", (f"{name} should not fire, but has no "
+                                        "`tool_used: Skill` grader to tell")
+            else:
+                fired_s = f"{sum(fired_)}/{len(fired_)}"
+                verdict = "fail" if any(fired_) else "pass"
+                why = (f"{name} should not fire but fired {fired_s}" if any(fired_)
+                       else f"{name} (should not fire: fired {fired_s})")
         else:
             d = mean(r["with"]) - mean(r["without"])
             se = delta_se(r["with"], r["without"])
@@ -312,6 +343,8 @@ def table(model: str, rows: list[dict]) -> str:
         note = "no skill effect: tests the base model (AC4)" if abs(d) < 0.01 else ""
         if d < -0.01:
             note = "skill makes it WORSE"
+        if r.get("should_not_fire"):
+            note = "should not fire"
         tc = r.get("turn_capped") or {}
         if tc.get("with") or tc.get("without"):
             capped = (f"hit max_turns: with {tc.get('with', 0)}/{len(r['with'])}, "
@@ -324,7 +357,7 @@ def table(model: str, rows: list[dict]) -> str:
             note = f"{note}; {timed}" if note else timed
         fired = r.get("fired")
         fired_s = f"{sum(fired)}/{len(fired)}" if fired is not None else "—"
-        if fired is not None and not any(fired):
+        if fired is not None and not any(fired) and not r.get("should_not_fire"):
             # The with arm was the base model too: the delta says nothing.
             never = "skill never fired"
             note = f"{never}; {note}" if note else never
@@ -389,7 +422,11 @@ def main(argv=None) -> int:
                          "run sandboxes (traces) under the eval root")
     a = ap.parse_args(argv)
 
-    cases = list(discover(a.repo, a.skill, a.case, a.tag))
+    try:
+        cases = list(discover(a.repo, a.skill, a.case, a.tag))
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
     known = {}
     if a.gate:
         try:

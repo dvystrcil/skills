@@ -171,7 +171,6 @@ jobs:
 
       - name: Discover + run tests/test_*.sh
         # unittest discover above only picks up *.py -- bash-script tests
-        # (e.g. bootstrap-infisical-ci.sh's hermetic detection-logic test)
         # need their own runner or they silently never execute in CI.
         run: |
           shopt -s nullglob

@@ -287,22 +287,25 @@ git add LICENSE && git commit -m "chore: add LICENSE" && git push
 # 4. Re-audit to confirm
 "$SKILLS_REPO/repo-protections/bin/audit.sh" dvystrcil/<repo>
 
-# 5. Bootstrap Infisical CI secrets, if this repo's workflows need them
-"$SKILLS_REPO/repo-protections/bin/bootstrap-infisical-ci.sh" dvystrcil/<repo>
+# 5. If this repo's CI uses Infisical, onboard it to keyless (OIDC) CI
+#    BEFORE the first merge to main (run from the repo's clone):
+grep -rlq 'Infisical/secrets-action' .github/workflows/ 2>/dev/null \
+  && gh workflow run onboard-ci-repo.yaml --repo dvystrcil/homelab -f repo=<repo>
 ```
 
-Step 5 (homelab#345) closes a recurring gap: `feedback_new_repo_infisical_secrets`
-was filed after a new repo's CI silently failed for 6 days because nobody
-set `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` at creation time — twice.
-The script detects whether the repo's workflows actually reference
-`Infisical/secrets-action` or `secrets.INFISICAL_CLIENT_ID` at all (a no-op,
-silent exit if not) and checks whether both secrets are already set
-(idempotent — safe to re-run). Every homelab repo's CI shares the same
-Infisical project/identity (`project-slug: homelab-bz-gt`, one set of
-credentials for the whole fleet — verified by grepping every workflow's
-`Infisical/secrets-action` step, not a new per-repo identity), so it just
-prompts once for those two values, opening the Infisical Identities page
-for you if you don't have them handy.
+Step 5 closes a recurring gap: a new repo's CI silently failed for days
+(once for 6 days, on a weekly cron) because its Infisical auth wasn't set up
+at creation time. PR builds pass without it; only the push-to-main and cron
+builds fail, so review doesn't catch it. Since homelab#427, CI reaches
+Infisical by OIDC with **no stored GitHub secret**. homelab's
+`onboard-ci-repo` workflow creates the repo's `ci-<repo>` identity, sets the
+repo variable `INFISICAL_IDENTITY_ID`, adds an ARC runner if the repo has
+none, and opens a PR converting the repo's `Infisical/secrets-action` steps
+to `method: oidc`. Merge that PR. The workflow is idempotent (re-run it to
+repair a repo); pass `-f dry_run=true` to see the plan first. Do not set
+`INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` repo secrets. That
+universal-auth path, and the bootstrap script that set it
+(homelab#345), are retired (skills#143).
 
 ### Periodic drift audit
 
@@ -349,6 +352,6 @@ Skills live in [`dvystrcil/skills`](https://github.com/dvystrcil/skills):
 Locally:
 
 - `~/.claude/skills/repo-protections` → symlinked to `<skills-repo>/claude/repo-protections/` (`<skills-repo>` defaults to `~/Code/skills`; a portable install may clone it elsewhere)
-- The `bin/` scripts live at `<skills-repo>/repo-protections/bin/{audit,apply,bootstrap-infisical-ci}.sh` — resolve `<skills-repo>` from the symlink (see "How to use"), never hardcode the path
+- The `bin/` scripts live at `<skills-repo>/repo-protections/bin/{audit,apply}.sh` — resolve `<skills-repo>` from the symlink (see "How to use"), never hardcode the path
 
 Keep the two SKILL.md flavors in sync when the convention changes.

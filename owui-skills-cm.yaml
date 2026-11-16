@@ -668,21 +668,23 @@ data:
     # Apply canonical settings + branch protection:
     ~/Code/skills/repo-protections/bin/apply.sh dvystrcil/<repo>
     
-    # Bootstrap Infisical CI secrets, if this repo's workflows need them:
-    ~/Code/skills/repo-protections/bin/bootstrap-infisical-ci.sh dvystrcil/<repo>
+    # If this repo's CI uses Infisical (Infisical/secrets-action), onboard it
+    # to keyless (OIDC) CI before the first merge to main:
+    gh workflow run onboard-ci-repo.yaml --repo dvystrcil/homelab -f repo=<repo>
     ```
     
-    The audit script flags drift without changing anything. The apply and
-    bootstrap-infisical-ci scripts are idempotent — safe to re-run.
+    The audit script flags drift without changing anything. The apply script
+    and the onboard-ci-repo workflow are idempotent — safe to re-run.
     
-    `bootstrap-infisical-ci.sh` (homelab#345) closes a recurring gap: a new
-    repo's CI silently failed for days because nobody set
-    `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` at creation time. It
-    detects whether the repo's own workflows reference Infisical at all
-    (no-op if not), checks idempotently whether both secrets already exist,
-    and only then prompts for the values — every homelab repo's CI shares
-    the same Infisical project/identity, so it's the same two values every
-    time, not a new per-repo identity to create.
+    Onboarding closes a recurring gap: a new repo's CI silently failed for
+    days because its Infisical auth wasn't set up at creation time. Since
+    homelab#427, CI reaches Infisical by OIDC with no stored GitHub secret.
+    homelab's `onboard-ci-repo` workflow creates the repo's `ci-<repo>`
+    identity, sets the repo variable `INFISICAL_IDENTITY_ID`, and opens a PR
+    converting its Infisical steps to `method: oidc`; merge that PR. Do not
+    set `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` repo secrets: that
+    path, and the bootstrap script that set it, are retired
+    (skills#143).
     
     ## When to apply
     

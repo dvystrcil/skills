@@ -1,0 +1,45 @@
+schema_version: "1.0"
+name: user-supplied-value
+description: >-
+  Should NOT fire (skills#140). A near miss: the same territory as the skill's
+  other cases (a config value, a model name, a doc that mentions it), but the
+  user supplies the value and asks for a mechanical edit. There is no premise
+  to check: the request is a decision, not a claim about what is true. The
+  skill's description was widened to fire on premises stated in the request
+  ('set its X flag'), so this case catches it firing on every config edit.
+  Judged on the fire rate alone (`should_not_fire`), not on Δ: there is no
+  skill effect to measure when the right behaviour is to stay out.
+  Measured 2026-11-15: claude-haiku-5-5 fired 3/3 with a deliberately
+  over-broad description ("Use for EVERY task ... load FIRST") and 0/3 with
+  the real one, so the case catches over-firing. On qwen3-coder-next it can't
+  fail yet: 0/10 even with the over-broad description, because qwen rarely
+  loads any skill (evals/README.md, "Not done yet").
+should_not_fire: true
+tags: [three-anchor-truthiness, default]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Read, Edit, Glob, Grep, Skill]
+  prompt: |
+    I want chat titles on llama3.2:3b-small from now on. Change TASK_LLM in
+    ./config/models.yaml to that, and update the table in ./docs/roles.md to
+    match.
+runs: 3
+graders:
+  - name: config-changed
+    type: regex
+    target: {source: file, path: config/models.yaml}
+    pattern: 'TASK_LLM:\s*"?llama3\.2:3b-small'
+  - name: doc-changed
+    type: regex
+    target: {source: file, path: docs/roles.md}
+    pattern: 'TASK_LLM[^\n]*3b-small'
+  # Passes when the skill did NOT run: the gate reads `max: 0` that way round.
+  - name: skill-not-fired
+    type: tool_used
+    tool: Skill
+    input_match: three-anchor-truthiness
+    min: 0
+    max: 0

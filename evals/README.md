@@ -205,6 +205,25 @@ followed by `sudo systemctl reload apparmor`.
    For every other skill the job reports results but can't fail. That's what
    qwen's numbers support; the fix is in the skills (getting qwen to load
    them), not in the gate.
+5. **Should-not-fire cases** (skills#140). A case with `should_not_fire: true`
+   is judged on the fire rate alone: it fails if the skill fired in any
+   with-arm run (`FAIL: … should not fire but fired k/N`), and Δ is not
+   judged, because when the right behaviour is to stay out there is no
+   with-vs-without effect to measure. Its `tool_used: Skill` grader may say
+   `max: 0` (passes when the skill did not run); the runner reads that the
+   right way round, so `fired` always counts runs where the skill loaded.
+   Without a Skill grader such a case fails: nothing can tell it stayed out.
+   The first one, [skills#141](https://github.com/dvystrcil/skills/pull/141),
+   failed under the Δ rule with "fired 10/10, Δ +0.00": a pass counted as a
+   fire, and a Δ that can never clear 2·SE. A `max: 0` Skill grader also
+   needs `min: 0`: `tool_used` defaults `min` to 1, so without it the grader
+   never passes and every run reads as a fire. The runner refuses that case.
+
+   `three-anchor-truthiness/user-supplied-value` is the first. On
+   claude-haiku-5-5 it fails against a deliberately over-broad description
+   (fired 3/3) and passes against the real one (0/3). On qwen3-coder-next it
+   passes either way (0/10 even when told to load the skill first), so on the
+   PR model it guards nothing until qwen loads skills.
 The table, the gate lines and `--keep` traces go to the job summary and a
 `skill-evals` artifact.
 
@@ -583,5 +602,3 @@ runs. Where qwen loads the skill (file-issue, batch-lane), the effect holds.
   wraps a script that drives the prod cluster, so each needs its script stubbed
   in the eval home first. Their SKILL.md names absolute host paths, which the
   eval can read (see above), so a stub alone isn't enough.
-- **A should-not-fire case for `three-anchor-truthiness`**, now that its
-  description is wider (see above).

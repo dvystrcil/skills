@@ -449,6 +449,93 @@ class SkillEvalsGate(unittest.TestCase):
         self.assertIn("reason", p.stderr)
 
 
+class SkillEvalsShouldNotFire(unittest.TestCase):
+    """`should_not_fire: true`: a case that passes when the skill stays out.
+
+    skills#141 added one and the gate failed it with "fired 10/10, Δ +0.00".
+    Its Skill grader had `max: 0`, so a pass meant "did not fire", and the
+    runner reported it as fired; and a should-not-fire case has no
+    with-vs-without effect, so the Δ rule failed it whatever happened
+    (skills#140 AC4). Such a case is judged on the fire rate alone.
+    """
+    setUp = SkillEvalsRunner.setUp
+    run_runner = SkillEvalsRunner.run_runner
+
+    def _case(self, skill_ran: list[bool], max0: bool = True, flag: bool = True,
+              grader: bool = True):
+        case_yaml = self.repo / "claude/homelab-secrets/evals/no-bash/case.yaml"
+        text = case_yaml.read_text()
+        if flag:
+            text = "should_not_fire: true\n" + text
+        if grader:
+            text += ("  - {name: skill-not-fired, type: tool_used, tool: Skill,"
+                     " input_match: homelab-secrets" + (", min: 0, max: 0" if max0 else "") + "}\n")
+        case_yaml.write_text(text)
+        n = len(skill_ran)
+        res = result("no-bash", [1] * n, [1] * n)
+        for run, ran in zip(res["cases"][0]["arms"]["with"], skill_ran):
+            # With `max: 0` the grader passes when the skill did NOT run.
+            passed = (not ran) if max0 else ran
+            run["graders"] = [{"name": "g", "passed": True, "scored": True}] + (
+                [{"name": "skill-not-fired", "passed": passed, "withOnly": True,
+                  "scored": False}] if grader else [])
+        self.results.write_text(json.dumps({
+            "needs-bash": result("needs-bash", [1], [0]), "no-bash": res}))
+
+    def test_max0_grader_reports_fired_the_right_way_round(self):
+        # Applies to any case: a passing `max: 0` Skill grader is "not fired".
+        self._case([False, False, True], flag=False)
+        _, _, out = self.run_runner("--model", "sonnet", "--case", "no-bash")
+        row = json.loads((out / "sonnet.json").read_text())["cases"][0]
+        self.assertEqual(row["fired"], [False, False, True])
+
+    def test_max0_without_min0_is_refused(self):
+        # tool_used defaults min to 1, so `max: 0` alone can never pass: the
+        # grader always fails and the runner would read every run as a fire.
+        # The first live run of skills#140's case did exactly that (10/10).
+        case_yaml = self.repo / "claude/homelab-secrets/evals/no-bash/case.yaml"
+        case_yaml.write_text("should_not_fire: true\n" + case_yaml.read_text() + (
+            "  - {name: skill-not-fired, type: tool_used, tool: Skill, max: 0}\n"))
+        p, calls, _ = self.run_runner("--model", "sonnet", "--gate", "--case", "no-bash")
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertIn("min: 0", p.stderr)
+        self.assertEqual(calls, [])
+
+    def test_never_fired_passes_despite_no_delta(self):
+        # skills#141's exact numbers: Δ +0.00, and the skill never ran.
+        self._case([False] * 10)
+        p, _, out = self.run_runner("--model", "sonnet", "--gate", "--case", "no-bash")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("PASS: skill homelab-secrets case no-bash (should not fire: fired 0/10)",
+                      p.stdout)
+        table = (out / "sonnet.md").read_text()
+        self.assertRegex(table, r"no-bash \|.*\| 0/10 \| should not fire \|")
+        self.assertNotIn("no skill effect", table)
+        self.assertNotIn("skill never fired", table)
+
+    def test_one_fire_fails(self):
+        self._case([False] * 9 + [True])
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate", "--case", "no-bash")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("FAIL: skill homelab-secrets case no-bash should not fire but fired 1/10",
+                      p.stdout)
+
+    def test_plain_skill_grader_works_too(self):
+        # A grader without `max: 0` passes when the skill ran.
+        self._case([True, False], max0=False)
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate", "--case", "no-bash")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("should not fire but fired 1/2", p.stdout)
+
+    def test_without_a_skill_grader_it_cannot_pass(self):
+        # No way to see whether the skill ran: never a silent pass.
+        self._case([False, False], grader=False)
+        p, _, _ = self.run_runner("--model", "sonnet", "--gate", "--case", "no-bash")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("FAIL: skill homelab-secrets case no-bash should not fire, "
+                      "but has no `tool_used: Skill` grader", p.stdout)
+
+
 class SkillEvalsChangedFrom(unittest.TestCase):
     """--changed-from REF: only the cases of skills the PR touched (AC3)."""
     setUp = SkillEvalsRunner.setUp

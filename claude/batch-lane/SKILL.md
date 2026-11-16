@@ -38,7 +38,8 @@ bin/gpu-batch-submit.py chain vt350-render --model ~/Documents/VT350/vt350-lite-
 bin/gpu-batch-submit.py blender --input <export dir> --script <render.py> --notify dvystrcil/<repo>#<n> -- <args>
 
 # add --dry-run to see the job dirs and request without starting anything
-bin/gpu-batch-submit.py status <job-id>   # read ONCE, later. exit 0 ok, 1 failed, 2 running, 3 refused, 4 none
+bin/gpu-batch-submit.py status <chain id or job-id> # read ONCE, later. exit 0 ok, 1 failed, 2 running, 3 refused, 4 none
+# status <chain id> takes the id `chain` prints: every step in order, exit = worst step's
 ```
 
 Prerequisites: the TrueNAS media share mounted at `/mnt/nfs/media`, prod

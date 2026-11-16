@@ -118,7 +118,7 @@ IU_WRITEBACK_REPOS=(
   dvystrcil/searxng dvystrcil/searxng-mcp dvystrcil/string-tools dvystrcil/sweep-mcp
   dvystrcil/syncthing-chart dvystrcil/tailscale dvystrcil/tinysearch-mcp dvystrcil/tor-character-mcp
   dvystrcil/tor-dice dvystrcil/trilium-notes dvystrcil/tuber dvystrcil/wallos
-  dvystrcil/wiki-mcp
+  dvystrcil/story-mcp dvystrcil/wiki-mcp
 )
 # Tests: IU_WRITEBACK_REPOS_OVERRIDE='o/r o/s' replaces the list (set but empty = no CD repos).
 if [ -n "${IU_WRITEBACK_REPOS_OVERRIDE+set}" ]; then

@@ -125,6 +125,10 @@ declare -A PINNED_CHECKS=(
   # 2026-11-17: a new Application must not sync from a repo without the ArgoCD
   # push webhook. Younger than the last 30 merged PRs, so derivation drops it.
   [dvystrcil/argocd-projects]="gitleaks;manifests;hooks"
+  # preset-guard `no-automerge` (2026-11-17): the shared Renovate preset never
+  # turns on automerge for the repos that extend it. Younger than the last 30
+  # merged PRs (renovate-config has ~6), so derivation would drop it.
+  [dvystrcil/renovate-config]="gitleaks;no-automerge"
   # gitleaks has run on every PR since #10; #5-#9 predate it, so derivation
   # over the last 30 merged PRs drops it (it did, 2026-11-16).
   [dvystrcil/standing-patrol]="gitleaks"

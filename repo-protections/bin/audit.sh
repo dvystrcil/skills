@@ -393,7 +393,7 @@ audit_one() {
       check "Ruleset (IU bypass)" "absent" "present"
     else
       # The solo CD shape (owner decision 2026-11-10, see apply.sh): the IU
-      # App is the ONLY bypass actor, 0 approvals. An admin bypass lets the
+      # App (plus the repo's DIRECT_PUSH_APPS) is the bypass, 0 approvals. An admin bypass lets the
       # owner's credential (every agent session) push straight to main; a
       # CICD bypass has nothing left to bypass at 0 approvals.
       local ruleset enforcement bypass approvals admin_bypass cicd_bypass
@@ -411,7 +411,14 @@ audit_one() {
       fi
       check "Ruleset required approvals" "$approvals"    "0"
       check "Ruleset admin bypass"       "$admin_bypass" "absent"
-      check "Ruleset CICD bypass"        "$cicd_bypass"  "absent"
+      # Absent unless DIRECT_PUSH_APPS lists the CICD App for this repo: a
+      # release-action deploy target that IU also writes to (open-webui,
+      # n8n-workflow) needs both, or its next deploy is refused (homelab#2320).
+      local want_cicd=absent
+      if direct_push_apps "$repo" | jq -e --argjson c "$CICD_APP_ID" 'index($c) != null' >/dev/null; then
+        want_cicd=present
+      fi
+      check "Ruleset CICD bypass"        "$cicd_bypass"  "$want_cicd"
       # Rulesets stack: IU's push must pass every active one, so any other
       # Ruleset without the IU bypass blocks it (glance, 2026-11-12).
       for rid in $(gh api "repos/$repo/rulesets" --jq ".[] | select(.enforcement==\"active\" and .id!=$ruleset_id) | .id" 2>/dev/null); do

@@ -97,7 +97,8 @@ the GitHub Actions checks present on **every** one of the last 30 merged PRs
 
 A bot that pushes straight to `main` (a collector, an autosync) would be
 rejected with `GH013`: its App id goes in `DIRECT_PUSH_APPS` in
-`bin/solo-ruleset.sh` and becomes the repo's only bypass. Never the GitHub
+`bin/solo-ruleset.sh` and becomes the repo's only bypass (on a repo IU also
+writes to, it sits beside the IU App: open-webui, n8n-workflow). Never the GitHub
 Actions App (15368): GitHub rejects it as a bypass on a user-owned repo, so a
 workflow pushing with `GITHUB_TOKEN` must push as an App instead. `audit.sh` checks
 the Ruleset is active, 0 approvals, no admin bypass, bypass Apps exactly as

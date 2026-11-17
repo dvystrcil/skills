@@ -27,7 +27,9 @@ run() { set +e; out=$(env "$@" 2>&1); rc=$?; set -e; }
 echo "the real list"
 # shellcheck source=../repo-protections/bin/solo-ruleset.sh
 list=$(unset IU_WRITEBACK_REPOS_OVERRIDE; . "$BIN/solo-ruleset.sh"; printf '%s\n' "${IU_WRITEBACK_REPOS[@]}")
-[ "$(wc -l <<<"$list")" -ge 30 ] && ok "has $(wc -l <<<"$list") entries" || bad "only $(wc -l <<<"$list") entries"
+# A floor against an accidentally emptied list. 37 until homelab#2320 moved
+# the release-action deploy repos to DIRECT_PUSH_APPS (2026-11-16), 23 since.
+[ "$(wc -l <<<"$list")" -ge 20 ] && ok "has $(wc -l <<<"$list") entries" || bad "only $(wc -l <<<"$list") entries"
 [ -z "$(sort <<<"$list" | uniq -d)" ] && ok "no duplicates" || bad "duplicates: $(sort <<<"$list" | uniq -d | tr '\n' ' ')"
 [ -z "$(grep -vE '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' <<<"$list")" ] && ok "every entry is owner/repo" \
   || bad "malformed: $(grep -vE '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' <<<"$list" | tr '\n' ' ')"
@@ -36,6 +38,14 @@ for r in cloudflare syncthing-chart trilium-notes; do
 done
 for r in kroger-mcp-docker syncthing; do
   grep -qx "dvystrcil/$r" <<<"$list" && bad "lists $r (has the dir, is NOT a target)" || ok "does not list $r"
+done
+
+# release-action deploy repos push as the CICD App: the CD Ruleset exempts
+# only the IU App, so listing one here breaks its deploys (writing-desk v0.0.2).
+direct=$(unset IU_WRITEBACK_REPOS_OVERRIDE; . "$BIN/solo-ruleset.sh"; for k in "${!DIRECT_PUSH_APPS[@]}"; do printf '%s=%s\n' "$k" "${DIRECT_PUSH_APPS[$k]}"; done)
+for r in story-mcp wiki-mcp tor-dice writing-desk ollama; do
+  grep -qx "dvystrcil/$r" <<<"$list" && bad "lists $r (release-action deploys; not an IU target)" || ok "does not list $r"
+  grep -q "^dvystrcil/$r=.*3693085" <<<"$direct" && ok "$r: CICD App in DIRECT_PUSH_APPS" || bad "$r: no CICD App in DIRECT_PUSH_APPS"
 done
 
 echo "is_iu_writeback_repo"

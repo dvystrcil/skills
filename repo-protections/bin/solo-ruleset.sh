@@ -56,6 +56,29 @@ declare -A DIRECT_PUSH_APPS=(
   # ImageUpdater writes to it, and the CD Ruleset exempts only the IU App, so
   # v0.0.2's deploy was refused with GH013 (homelab#2329).
   [dvystrcil/writing-desk]="3693085"
+  # release-action deploy targets (homelab#2320): each <app>-docker release
+  # pushes its tag bump to the deploy repo's main as the CICD App, authored
+  # homelab-bump-bot. They left IU_WRITEBACK_REPOS when their ImageUpdaters
+  # were retired; their live Rulesets already exempted 3693085 by hand
+  # (checked 2026-11-16), so apply.sh would otherwise have put the IU App back
+  # and broken the next deploy with GH013, as it did writing-desk v0.0.2.
+  [dvystrcil/argocd-mcp]="3693085"
+  [dvystrcil/cluster-ops]="3693085"
+  [dvystrcil/deco-exporter]="3693085"
+  [dvystrcil/kroger-mcp]="3693085"
+  [dvystrcil/mcp-server]="3693085"
+  [dvystrcil/mealie-mcp]="3693085"
+  [dvystrcil/nscale-calc]="3693085"
+  [dvystrcil/ollama]="3693085"
+  [dvystrcil/open-terminal]="3693085"
+  [dvystrcil/quartz-viewer]="3693085"
+  [dvystrcil/rpg-dice-mcp]="3693085"
+  [dvystrcil/story-mcp]="3693085"
+  [dvystrcil/string-tools]="3693085"
+  [dvystrcil/sweep-mcp]="3693085"
+  [dvystrcil/tor-character-mcp]="3693085"
+  [dvystrcil/tor-dice]="3693085"
+  [dvystrcil/wiki-mcp]="3693085"
   # rebuild-configmap.yml pushes the regenerated ConfigMap to main as the CICD
   # App (6 rule-suite bypasses in Oct-Nov 2026, under the hand-made Ruleset).
   [dvystrcil/skills]="3693085"
@@ -94,6 +117,27 @@ declare -A PINNED_CHECKS=(
   # gitleaks has run on every PR since #10; #5-#9 predate it, so derivation
   # over the last 30 merged PRs drops it (it did, 2026-11-16).
   [dvystrcil/standing-patrol]="gitleaks"
+  # The release-action deploy repos' checks, as required live on 2026-11-16,
+  # when they moved to DIRECT_PUSH_APPS. Derivation over their last 30 merged
+  # PRs would have dropped them on 15 of 17 (dry-run), since most of those
+  # PRs are older than the checks or skipped one by path.
+  [dvystrcil/argocd-mcp]="gitleaks;manifests"
+  [dvystrcil/cluster-ops]="gitleaks;manifests"
+  [dvystrcil/deco-exporter]="gitleaks"
+  [dvystrcil/kroger-mcp]="gitleaks;manifests"
+  [dvystrcil/mcp-server]="gitleaks;manifests"
+  [dvystrcil/mealie-mcp]="gitleaks"
+  [dvystrcil/nscale-calc]="gitleaks;manifests"
+  [dvystrcil/ollama]="gitleaks;manifests"
+  [dvystrcil/open-terminal]="gitleaks;manifests"
+  [dvystrcil/quartz-viewer]="gitleaks;manifests"
+  [dvystrcil/rpg-dice-mcp]="gitleaks;manifests"
+  [dvystrcil/story-mcp]="gitleaks;manifests;scripts"
+  [dvystrcil/string-tools]="gitleaks;manifests"
+  [dvystrcil/sweep-mcp]="gitleaks;manifests"
+  [dvystrcil/tor-character-mcp]="gitleaks;manifests"
+  [dvystrcil/tor-dice]="gitleaks;manifests"
+  [dvystrcil/wiki-mcp]="gitleaks;manifests;scripts"
 )
 # Tests: PINNED_CHECKS_OVERRIDE='owner/repo=check;check'
 if [ -n "${PINNED_CHECKS_OVERRIDE:-}" ]; then
@@ -120,20 +164,15 @@ fi
 # their IU bypass. The source of truth is the live CRs: each
 # writeBackConfig.gitConfig.repository with method git. `iu-targets.sh` diffs
 # this list against them -- run it after adding or removing an ImageUpdater.
-# Read from the cluster 2026-11-11 (37 CRs, 37 repos).
+# Read from the cluster 2026-11-11 (37 CRs, 37 repos); 23 after the homelab#2320
+# release-action repos moved to DIRECT_PUSH_APPS (2026-11-16).
 IU_WRITEBACK_REPOS=(
-  dvystrcil/argocd-mcp dvystrcil/bentopdf dvystrcil/cloudflare dvystrcil/cluster-ops
-  dvystrcil/coder dvystrcil/deco-exporter dvystrcil/filebrowser-quantum dvystrcil/glance
-  dvystrcil/homepage
-  dvystrcil/immich dvystrcil/infisical dvystrcil/invidious dvystrcil/jellyfin
-  dvystrcil/kroger-mcp dvystrcil/language-tool dvystrcil/mcp-server dvystrcil/mealie
-  dvystrcil/mealie-mcp dvystrcil/n8n-workflow dvystrcil/nscale-calc dvystrcil/ollama
-  dvystrcil/open-terminal dvystrcil/open-webui dvystrcil/quartz-viewer dvystrcil/rpg-dice-mcp
-  dvystrcil/searxng dvystrcil/searxng-mcp dvystrcil/string-tools dvystrcil/sweep-mcp
-  dvystrcil/syncthing-chart dvystrcil/tailscale dvystrcil/tinysearch-mcp dvystrcil/tor-character-mcp
-  dvystrcil/tor-dice dvystrcil/trilium-notes dvystrcil/tuber dvystrcil/wallos
-  dvystrcil/story-mcp dvystrcil/wiki-mcp
-  dvystrcil/collabora
+  dvystrcil/bentopdf dvystrcil/cloudflare dvystrcil/coder dvystrcil/filebrowser-quantum
+  dvystrcil/glance dvystrcil/homepage dvystrcil/immich dvystrcil/infisical
+  dvystrcil/invidious dvystrcil/jellyfin dvystrcil/language-tool dvystrcil/mealie
+  dvystrcil/n8n-workflow dvystrcil/open-webui dvystrcil/searxng dvystrcil/searxng-mcp
+  dvystrcil/syncthing-chart dvystrcil/tailscale dvystrcil/tinysearch-mcp
+  dvystrcil/trilium-notes dvystrcil/tuber dvystrcil/wallos dvystrcil/collabora
 )
 # Tests: IU_WRITEBACK_REPOS_OVERRIDE='o/r o/s' replaces the list (set but empty = no CD repos).
 if [ -n "${IU_WRITEBACK_REPOS_OVERRIDE+set}" ]; then

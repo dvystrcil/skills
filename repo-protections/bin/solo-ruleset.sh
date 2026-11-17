@@ -51,6 +51,11 @@ declare -A DIRECT_PUSH_APPS=(
   # "Changes must be made through a pull request"). story-mcp holds the same
   # key but only fetches.
   [dvystrcil/standing-patrol]="4054155"
+  # writing-desk-docker's release job deploys each tag by pushing the bump to
+  # main as the CICD App (release-action, homelab#2320). Not a CD repo: no
+  # ImageUpdater writes to it, and the CD Ruleset exempts only the IU App, so
+  # v0.0.2's deploy was refused with GH013 (homelab#2329).
+  [dvystrcil/writing-desk]="3693085"
   # rebuild-configmap.yml pushes the regenerated ConfigMap to main as the CICD
   # App (6 rule-suite bypasses in Oct-Nov 2026, under the hand-made Ruleset).
   [dvystrcil/skills]="3693085"
@@ -86,6 +91,9 @@ declare -A PINNED_CHECKS=(
   # verify-acs gate (homelab#2111), required since gateway-services#16; it
   # replaced that hand-made Ruleset, which required this check and nothing else.
   [dvystrcil/gateway-services]="verify-acs / verify-acs"
+  # gitleaks has run on every PR since #10; #5-#9 predate it, so derivation
+  # over the last 30 merged PRs drops it (it did, 2026-11-16).
+  [dvystrcil/standing-patrol]="gitleaks"
 )
 # Tests: PINNED_CHECKS_OVERRIDE='owner/repo=check;check'
 if [ -n "${PINNED_CHECKS_OVERRIDE:-}" ]; then
@@ -125,7 +133,7 @@ IU_WRITEBACK_REPOS=(
   dvystrcil/syncthing-chart dvystrcil/tailscale dvystrcil/tinysearch-mcp dvystrcil/tor-character-mcp
   dvystrcil/tor-dice dvystrcil/trilium-notes dvystrcil/tuber dvystrcil/wallos
   dvystrcil/story-mcp dvystrcil/wiki-mcp
-  dvystrcil/collabora dvystrcil/writing-desk
+  dvystrcil/collabora
 )
 # Tests: IU_WRITEBACK_REPOS_OVERRIDE='o/r o/s' replaces the list (set but empty = no CD repos).
 if [ -n "${IU_WRITEBACK_REPOS_OVERRIDE+set}" ]; then

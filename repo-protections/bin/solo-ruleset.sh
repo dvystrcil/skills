@@ -121,6 +121,10 @@ declare -A PINNED_CHECKS=(
   # verify-acs gate (homelab#2111), required since gateway-services#16; it
   # replaced that hand-made Ruleset, which required this check and nothing else.
   [dvystrcil/gateway-services]="verify-acs / verify-acs"
+  # argocd-webhooks `hooks` (argocd-projects#381), required by owner decision
+  # 2026-11-17: a new Application must not sync from a repo without the ArgoCD
+  # push webhook. Younger than the last 30 merged PRs, so derivation drops it.
+  [dvystrcil/argocd-projects]="gitleaks;manifests;hooks"
   # gitleaks has run on every PR since #10; #5-#9 predate it, so derivation
   # over the last 30 merged PRs drops it (it did, 2026-11-16).
   [dvystrcil/standing-patrol]="gitleaks"

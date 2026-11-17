@@ -45,6 +45,12 @@ declare -A DIRECT_PUSH_APPS=(
   # wiki-mcp's git-sync sidecar pushes autosync commits; wiki-import and
   # wiki-lint push as the same App (llm-wiki#44), so one bypass covers all.
   [dvystrcil/llm-wiki]="4054155"
+  # writing-desk commits the author's saves (Save / close in Collabora) to
+  # main through the Contents API as the GITSYNC App, one commit per save, by
+  # the author's decision (homelab#2329). Its first save was refused (409:
+  # "Changes must be made through a pull request"). story-mcp holds the same
+  # key but only fetches.
+  [dvystrcil/standing-patrol]="4054155"
   # rebuild-configmap.yml pushes the regenerated ConfigMap to main as the CICD
   # App (6 rule-suite bypasses in Oct-Nov 2026, under the hand-made Ruleset).
   [dvystrcil/skills]="3693085"

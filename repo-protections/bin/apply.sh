@@ -134,36 +134,27 @@ if [ "$is_cd_repo" = "1" ]; then
   fi
 
   # The solo CD Ruleset (owner decision 2026-11-10, after GitHub Pro): the IU
-  # App is the ONLY bypass actor, and 0 approvals. The old shape required 1
+  # App is the bypass actor, and 0 approvals. The old shape required 1
   # approval with Repository admin (`always`) and the CICD App as bypass
   # actors; on a solo account every merge went through the admin bypass, and
   # `always` let the owner's credential -- every agent session -- push
   # straight to main. With 0 approvals the owner merges normally and the
   # auto-merge gate's plain merge succeeds (homelab D-037 tries it first), so
   # neither bypass is needed.
-  ruleset_payload=$(jq -nc \
-    --arg name "$ruleset_name" \
-    --argjson app_id "$IU_APP_ID" \
-    '{
-      name: $name,
-      target: "branch",
-      enforcement: "active",
-      bypass_actors: [
-        {actor_id: $app_id, actor_type: "Integration", bypass_mode: "always"}
-      ],
-      conditions: {ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}},
-      rules: [
-        {type: "deletion"},
-        {type: "non_fast_forward"},
-        {type: "pull_request", parameters: {
-          required_approving_review_count: 0,
-          dismiss_stale_reviews_on_push: false,
-          require_code_owner_review: false,
-          require_last_push_approval: false,
-          required_review_thread_resolution: false
-        }}
-      ]
-    }')
+  #
+  # Built by solo_ruleset_payload, so it carries two things the old inline
+  # payload dropped on every PUT (homelab#2320):
+  #   - the repo's DIRECT_PUSH_APPS beside the IU App. open-webui and
+  #     n8n-workflow are IU targets for a third-party image AND release-action
+  #     deploy targets for our own; without the CICD App the next deploy is
+  #     refused (GH013, as writing-desk v0.0.2 was).
+  #   - the required checks, derived like the solo path's. The inline payload
+  #     had none, so re-running this deleted every image repo's required checks.
+  checks=$(required_checks "$REPO") \
+    || { echo "    FAILED to read merged PRs' check-runs -- refusing to guess required checks" >&2; exit 1; }
+  apps=$(jq -nc --argjson iu "$IU_APP_ID" --argjson d "$(direct_push_apps "$REPO")" '[$iu] + $d | unique')
+  ruleset_payload=$(solo_ruleset_payload "$apps" "$checks" | jq -c --arg n "$ruleset_name" '.name = $n')
+  echo "    CD Ruleset: required checks $checks, bypass Apps $apps"
 
   if [ -n "$existing_id" ]; then
     echo "    Ruleset '$ruleset_name' already exists (id=$existing_id); updating to match canonical shape"

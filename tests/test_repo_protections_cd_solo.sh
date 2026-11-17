@@ -37,7 +37,16 @@ rs() {  # bypass-json approvals [name]
 cat > "$STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
 args="$*"
+jqf() { if [[ "$args" == *" --jq "* ]]; then jq -r "${args#* --jq }"; else cat; fi; }
 case "$args" in
+  # Merged-PR history for the required checks (PRS = head SHAs, CHECKS_<sha>
+  # = [name, app_id] pairs), as in test_repo_protections_solo_plain.sh.
+  "api repos/o/r/pulls?state=closed&per_page=100"*)
+    echo "${PRS:-[]}" | jq -c '[.[] | {merged_at: "2026-11-01T00:00:00Z", head: {sha: .}}]' | jqf ;;
+  "api repos/o/r/commits/"*"/check-runs?per_page=100"*)
+    sha=${args#api repos/o/r/commits/}; sha=${sha%%/*}
+    var="CHECKS_$sha"
+    echo "${!var:-[]}" | jq -c '{check_runs: [.[] | {name: .[0], app: {id: .[1]}}]}' | jqf ;;
   "api repos/o/r")
     echo '{"default_branch":"main","visibility":"private","allow_merge_commit":false,"allow_squash_merge":true,"allow_rebase_merge":true,"delete_branch_on_merge":true,"allow_auto_merge":false,"has_issues":true,"fork":false}' ;;
   # No image-updater/ dir: CD-ness comes from the list (cloudflare, syncthing-chart, trilium-notes).
@@ -113,6 +122,28 @@ run RULESETS_LIST="[$(rs '[]' 0 main-protection)]" RULESET_77="$(rs '[]' 0 main-
 [ "$(jq -r .name "$STUB_DIR/put.json" 2>/dev/null)" = main-protection-with-iu-bypass ] \
   && ok "renamed to main-protection-with-iu-bypass" || bad "name $(jq -r .name "$STUB_DIR/put.json" 2>/dev/null)"
 
+echo "apply.sh, CD repo that release-action ALSO deploys to (homelab#2320)"
+# open-webui and n8n-workflow: IU still writes the third-party image, and the
+# CICD App commits our own image's tag. Both must stay bypass actors, or the
+# next release-action deploy is refused (GH013, as writing-desk v0.0.2 was).
+rm -f "$STUB_DIR"/post.json "$STUB_DIR"/put.json
+run DIRECT_PUSH_APPS_OVERRIDE='o/r=3693085' RULESETS_LIST="[$(rs "[$IU]" 0)]" RULESET_77="$(rs "[$IU]" 0)" bash "$BIN/apply.sh" o/r
+[ "$(jq -c '[.bypass_actors[] | [.actor_type, .actor_id, .bypass_mode]]' "$STUB_DIR/put.json" 2>/dev/null)" \
+    = '[["Integration",378815,"always"],["Integration",3693085,"always"]]' ] \
+  && ok "IU App AND the listed CICD App are bypass actors" || bad "bypass actors: $(jq -c .bypass_actors "$STUB_DIR/put.json" 2>/dev/null) (rc=$rc)"
+
+echo "apply.sh, CD repo with required checks keeps them (homelab#2320 AC1)"
+# The PUT replaces the whole Ruleset: without the derived checks it deleted
+# the required_status_checks every image-build repo now carries.
+GHA=15368
+rm -f "$STUB_DIR"/post.json "$STUB_DIR"/put.json
+env5=(); for s in c1 c2 c3 c4 c5; do env5+=("CHECKS_$s=[[\"gitleaks\",$GHA],[\"manifests\",$GHA]]"); done
+run PRS='["c1","c2","c3","c4","c5"]' "${env5[@]}" RULESETS_LIST="[$(rs "[$IU]" 0)]" RULESET_77="$(rs "[$IU]" 0)" bash "$BIN/apply.sh" o/r
+[ "$(jq -c '[.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]' "$STUB_DIR/put.json" 2>/dev/null)" = '["gitleaks","manifests"]' ] \
+  && ok "required_status_checks: gitleaks, manifests" || bad "rules: $(jq -c .rules "$STUB_DIR/put.json" 2>/dev/null) (rc=$rc)"
+run PRS='["c1"]' "CHECKS_c1=[]" RULESETS_LIST="[$(rs "[$IU]" 0)]" RULESET_77="$(rs "[$IU]" 0)" bash "$BIN/apply.sh" o/r
+[ "$rc" = 0 ] && ok "too few PRs: still applies (no checks rule)" || bad "rc=$rc"
+
 echo "audit.sh, CD repo"
 audit_line() { run RULESETS_LIST="[$(rs "$1" "$2" "${3:-main-protection-with-iu-bypass}")]" RULESET_77="$(rs "$1" "$2" "${3:-main-protection-with-iu-bypass}")" bash "$BIN/audit.sh" o/r; }
 
@@ -128,6 +159,12 @@ grep -qE '✗.*approvals' <<<"$out" && ok "old shape: 1 approval is ✗" || bad 
 
 audit_line "[$IU,$CICD_PR]" 0
 grep -qE '✗.*CICD' <<<"$out" && ok "CICD pull_request bypass is ✗ (not part of the solo shape)" || bad "CICD bypass not flagged"
+
+CICD_ALWAYS='{"actor_id":3693085,"actor_type":"Integration","bypass_mode":"always"}'
+run DIRECT_PUSH_APPS_OVERRIDE='o/r=3693085' RULESETS_LIST="[$(rs "[$IU,$CICD_ALWAYS]" 0)]" RULESET_77="$(rs "[$IU,$CICD_ALWAYS]" 0)" bash "$BIN/audit.sh" o/r
+grep -qE '✗.*CICD' <<<"$out" && bad "listed CICD bypass flagged on a release-action deploy target" || ok "CICD bypass passes where DIRECT_PUSH_APPS lists it"
+run DIRECT_PUSH_APPS_OVERRIDE='o/r=3693085' RULESETS_LIST="[$(rs "[$IU]" 0)]" RULESET_77="$(rs "[$IU]" 0)" bash "$BIN/audit.sh" o/r
+grep -qE '✗.*CICD' <<<"$out" && ok "listed CICD bypass missing is ✗ (the next deploy would be refused)" || bad "missing listed CICD bypass not flagged"
 
 audit_line "[$ADM]" 0
 grep -qE '✗.*IU bypass' <<<"$out" && ok "no IU bypass is ✗" || bad "missing IU bypass not flagged"

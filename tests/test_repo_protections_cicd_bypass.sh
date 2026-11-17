@@ -27,6 +27,8 @@ case "$args" in
   "api repos/o/r/rulesets --jq"*)           echo '' ;;
   "api repos/o/r/rulesets")                 echo '[]' ;;
   *"-X POST"*"repos/o/r/rulesets"*)          cat > "$PAYLOAD_OUT"; echo '{}' ;;
+  # apply.sh's CD path derives required checks from merged PRs: none here.
+  "api repos/o/r/pulls?state=closed&per_page=100"*) echo '' ;;
   *) echo "stub gh: unexpected call: $args" >&2; exit 98 ;;
 esac
 STUB

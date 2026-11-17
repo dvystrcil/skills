@@ -79,6 +79,13 @@ declare -A DIRECT_PUSH_APPS=(
   [dvystrcil/tor-character-mcp]="3693085"
   [dvystrcil/tor-dice]="3693085"
   [dvystrcil/wiki-mcp]="3693085"
+  # Deploy targets that are ALSO in IU_WRITEBACK_REPOS (homelab#2320): IU
+  # still writes the third-party image (ghcr.io/open-webui/open-webui,
+  # docker.n8n.io/n8nio/n8n) and release-action commits our own
+  # (owui-pipelines, owui-playwright; n8n-nodes-k8s). apply.sh's CD path adds
+  # these beside the IU App, and audit.sh expects both.
+  [dvystrcil/n8n-workflow]="3693085"
+  [dvystrcil/open-webui]="3693085"
   # rebuild-configmap.yml pushes the regenerated ConfigMap to main as the CICD
   # App (6 rule-suite bypasses in Oct-Nov 2026, under the hand-made Ruleset).
   [dvystrcil/skills]="3693085"

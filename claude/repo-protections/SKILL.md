@@ -292,6 +292,12 @@ git add LICENSE && git commit -m "chore: add LICENSE" && git push
 #    BEFORE the first merge to main (run from the repo's clone):
 grep -rlq 'Infisical/secrets-action' .github/workflows/ 2>/dev/null \
   && gh workflow run onboard-ci-repo.yaml --repo dvystrcil/homelab -f repo=<repo>
+
+# 6. If an ArgoCD Application will sync from this repo, give it the push
+#    webhook. It reads ArgoCD's webhook secret, so the OPERATOR runs it
+#    (hand them the `!` command); an agent runs only the dry run:
+python3 ~/Code/homelab/bin/argocd-webhook.py ensure dvystrcil/<repo> --dry-run
+#    operator:  ! python3 ~/Code/homelab/bin/argocd-webhook.py ensure dvystrcil/<repo>
 ```
 
 Step 5 closes a recurring gap: a new repo's CI silently failed for days
@@ -307,6 +313,10 @@ repair a repo); pass `-f dry_run=true` to see the plan first. Do not set
 `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` repo secrets. That
 universal-auth path, and the bootstrap script that set it
 (homelab#345), are retired (skills#143).
+
+Step 6: without the hook, a merge waits for ArgoCD's ~3 min poll instead of
+syncing in seconds. Nothing else creates it. homelab's daily
+`argocd-webhook-audit` workflow flags a missing hook, but only the day after.
 
 ### Periodic drift audit
 

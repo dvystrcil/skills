@@ -108,7 +108,10 @@ class SkillEvalsRunner(unittest.TestCase):
         self.env = {**os.environ,
                     "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
                     "STUB_LOG": str(self.log),
-                    "STUB_RESULTS": str(self.results)}
+                    "STUB_RESULTS": str(self.results),
+                    # No real local-fallback events from a test (skills#126):
+                    # point the runner at a homelab checkout that isn't there.
+                    "SKILL_EVALS_HOMELAB": str(self.tmp / "no-homelab")}
         self.env.pop("ANTHROPIC_BASE_URL", None)
 
     def run_runner(self, *args):
@@ -603,6 +606,171 @@ class OllamaEndpoint(unittest.TestCase):
         _, calls, _ = self.run_runner("--model", "qwen3-coder-next")
         self.assertTrue(calls)
         self.assertEqual({c["base_url"] for c in calls}, {"http://ollama.ollama.svc"})
+
+
+# A stand-in for dvystrcil/homelab bin/lib/local_fallback.py: same two calls,
+# but emit() appends to a file the test reads instead of pushing to Loki.
+FAKE_LF = textwrap.dedent(
+    r"""
+    import json, os
+    def new_event(task_type, model, gate=""):
+        return {"schema": "local-fallback/v1", "ts": "T", "run_id": "r",
+                "host": "h", "task_type": task_type, "model": model,
+                "gate": gate, "gate_outcome": "error", "failure_class": "none",
+                "failure_reason": "none", "failure_reasons": [],
+                "first_try_reasons": [], "attempts": 0, "escalated_to": "none",
+                "exit_code": None, "duration_s": 0, "dry_run": False}
+    def emit(ev):
+        if os.environ.get("FAKE_LF_RAISE"):
+            raise RuntimeError("emitter blew up")
+        with open(os.environ["FAKE_LF_LOG"], "a") as f:
+            f.write(json.dumps(ev) + "\n")
+    """
+).lstrip()
+
+REAL_HOMELAB = Path.home() / "Code" / "homelab"
+
+
+class LocalFallbackEvents(unittest.TestCase):
+    """skills#126: a local model's eval result is one `local-fallback/v1`
+    event per case, on the same Grafana dashboard as draft-issue.
+
+    homelab's architecture/local-fallback-telemetry.md records one event per
+    local attempt, pass or fail (the fallback rate is escalated ÷ all events),
+    and the deterministic gate decides the outcome. Here the gate is the PR
+    rule in `gate()`: never fired, or Δ not clear of 2·SE, is a fail.
+    """
+    setUp_base = SkillEvalsRunner.setUp
+    run_runner = SkillEvalsRunner.run_runner
+    _with_skill_grader = SkillEvalsRunner._with_skill_grader
+
+    def setUp(self):
+        self.setUp_base()
+        lib = self.tmp / "homelab" / "bin" / "lib"
+        lib.mkdir(parents=True)
+        (lib / "local_fallback.py").write_text(FAKE_LF)
+        self.events_log = self.tmp / "events.jsonl"
+        self.env["SKILL_EVALS_HOMELAB"] = str(self.tmp / "homelab")
+        self.env["FAKE_LF_LOG"] = str(self.events_log)
+        self.env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    def events(self) -> list[dict]:
+        if not self.events_log.exists():
+            return []
+        return [json.loads(l) for l in self.events_log.read_text().splitlines()]
+
+    def by_case(self) -> dict[str, dict]:
+        return {e["task_type"]: e for e in self.events()}
+
+    def test_one_event_per_case_for_a_local_model_pass_and_fail(self):
+        # needs-bash: 1.00 vs 0.17 clears 2·SE -> pass.
+        # no-bash: 1.00 vs 1.00 -> no effect -> the local model failed it.
+        p, _, _ = self.run_runner("--model", "qwen3-coder-next")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        ev = self.by_case()
+        self.assertEqual(set(ev), {"skill-eval-needs-bash", "skill-eval-no-bash"})
+        ok, bad = ev["skill-eval-needs-bash"], ev["skill-eval-no-bash"]
+        for e in (ok, bad):
+            self.assertEqual(e["schema"], "local-fallback/v1")
+            self.assertEqual(e["model"], "qwen3-coder-next:latest")
+            self.assertEqual(e["gate"], "skill-evals.gate")
+            self.assertEqual(e["attempts"], 1)
+        self.assertEqual((ok["gate_outcome"], ok["failure_class"], ok["failure_reason"],
+                          ok["escalated_to"]), ("pass", "none", "none", "none"))
+        self.assertEqual((bad["gate_outcome"], bad["failure_class"], bad["failure_reason"],
+                          bad["escalated_to"]), ("fail", "gate", "no_effect", "claude-code"))
+        self.assertEqual(bad["skill"], "homelab-secrets")
+        self.assertEqual(bad["harness"], "claude")
+        self.assertEqual(bad["runs"], {"with": 3, "without": 3})
+
+    def test_never_fired_is_a_fail_and_failed_graders_are_the_reasons(self):
+        # A skill that never loads is the documented 0/10 failure: the issue's
+        # "fired and with < without" would have recorded it as a pass.
+        self._with_skill_grader([False, False], with_scores=[0.5, 0.5],
+                                without_scores=[0, 0])
+        res = json.loads(self.results.read_text())
+        for run in res["no-bash"]["cases"][0]["arms"]["with"]:
+            run["graders"].append({"name": "uses-infisical", "passed": False,
+                                   "scored": True})
+        self.results.write_text(json.dumps(res))
+        self.run_runner("--model", "qwen3-coder-next")
+        bad = self.by_case()["skill-eval-no-bash"]
+        self.assertEqual((bad["gate_outcome"], bad["failure_reason"], bad["escalated_to"]),
+                         ("fail", "never_fired", "claude-code"))
+        self.assertEqual(bad["failure_reasons"], ["never_fired", "uses-infisical"])
+
+    def test_should_not_fire_case_that_fired_is_a_fail(self):
+        SkillEvalsShouldNotFire._case(self, [True, False])
+        self.run_runner("--model", "qwen3-coder-next")
+        bad = self.by_case()["skill-eval-no-bash"]
+        self.assertEqual((bad["gate_outcome"], bad["failure_reason"]),
+                         ("fail", "fired_when_should_not"))
+
+    def test_errored_case_is_infra_not_a_fallback(self):
+        self.results.write_text(json.dumps({
+            "needs-bash": result("needs-bash", [0], [0], error="exit 1: boom"),
+            "no-bash": result("no-bash", [1], [0]),
+        }))
+        self.run_runner("--model", "qwen3-coder-next")
+        e = self.by_case()["skill-eval-needs-bash"]
+        self.assertEqual((e["gate_outcome"], e["failure_class"], e["failure_reason"],
+                          e["escalated_to"]), ("error", "infra", "eval_error", "none"))
+
+    def test_claude_model_emits_nothing(self):
+        p, _, _ = self.run_runner("--model", "sonnet")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.events(), [])
+
+    def test_output_and_exit_code_do_not_change(self):
+        # AC3: same stdout, JSON and exit code with the emitter present,
+        # missing, or blowing up; with and without --gate.
+        def outcome(*args):
+            p, _, out = self.run_runner("--model", "qwen3-coder-next", *args)
+            data = json.loads((out / "qwen3-coder-next.json").read_text())
+            shutil.rmtree(out)
+            return p.returncode, p.stdout, data
+        for args in ((), ("--gate",)):
+            with_emitter = outcome(*args)
+            self.assertTrue(self.events())
+            self.env["FAKE_LF_RAISE"] = "1"
+            raising = outcome(*args)
+            del self.env["FAKE_LF_RAISE"]
+            self.env["SKILL_EVALS_HOMELAB"] = str(self.tmp / "no-homelab")
+            missing = outcome(*args)
+            self.env["SKILL_EVALS_HOMELAB"] = str(self.tmp / "homelab")
+            self.assertEqual(with_emitter, missing)
+            self.assertEqual(raising, missing)
+        self.assertEqual(outcome("--gate")[0], 1)  # no-bash fails the gate
+
+    @unittest.skipUnless((REAL_HOMELAB / "bin/lib/local_fallback.py").is_file(),
+                         "needs a dvystrcil/homelab checkout at ~/Code/homelab")
+    def test_events_pass_the_real_homelab_emitter(self):
+        # The fake proves the wiring; this proves the shipped emitter accepts
+        # the events (its REQUIRED fields and task_type pattern). History
+        # only: LOCAL_FALLBACK_PUSH_URL=off, files under this test's tmp.
+        self.env["SKILL_EVALS_HOMELAB"] = str(REAL_HOMELAB)
+        self.env["LOCAL_FALLBACK_DIR"] = str(self.tmp / "lf")
+        self.env["LOCAL_FALLBACK_PUSH_URL"] = "off"
+        p, _, _ = self.run_runner("--model", "qwen3-coder-next")
+        self.assertNotIn("local-fallback:", p.stderr)
+        lines = (self.tmp / "lf" / "events.jsonl").read_text().splitlines()
+        self.assertEqual(sorted(json.loads(l)["task_type"] for l in lines),
+                         ["skill-eval-needs-bash", "skill-eval-no-bash"])
+
+
+class TaskTypeFitsTheEmitter(unittest.TestCase):
+    def test_every_real_case_name_makes_a_valid_task_type(self):
+        # The emitter refuses a task_type outside [a-z0-9][a-z0-9-]{0,39}
+        # (homelab bin/lib/local_fallback.py), so a long case name would
+        # silently record nothing. Catch it at PR time instead.
+        import re
+        import yaml
+        pat = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+        for path in sorted(REPO.glob("claude/*/evals/*/case.yaml")):
+            name = yaml.safe_load(path.read_text())["name"]
+            self.assertTrue(pat.fullmatch(f"skill-eval-{name}"),
+                            f"{path}: skill-eval-{name} is not a valid task_type "
+                            "(max 40 chars, [a-z0-9-])")
 
 
 if __name__ == "__main__":

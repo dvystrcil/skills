@@ -25,11 +25,13 @@ the eval fails (see evals/README.md).
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import yaml
@@ -218,6 +220,90 @@ def run_case_opencode(c: dict, model_alias: str, runs: int | None, workdir: Path
 
 KNOWN_FAILING = Path("evals") / "known-failing.txt"
 
+# A local model's result per case becomes one `local-fallback/v1` event, so
+# eval-time failures show on homelab's "Local model fallbacks" dashboard next
+# to draft-issue (skills#126). One event per case per local model, pass or
+# fail: the dashboard's fallback rate is escalated events / all events
+# (homelab architecture/local-fallback-telemetry.md). The emitter is imported
+# from a dvystrcil/homelab checkout, not copied, so the schema has one home;
+# with no checkout (CI, another machine) nothing is recorded and nothing else
+# changes. Claude runs never emit: they are the fallback, not the local try.
+EVAL_GATE = "skill-evals.gate"
+# Reason codes where the local model got the case wrong. eval_error is the
+# harness or Ollama (infra), and no_skill_grader is the case's own fault, so
+# neither is a fallback to Claude.
+MODEL_FAILURES = ("never_fired", "no_effect", "fired_when_should_not")
+
+
+def is_local(model_alias: str, harness: str) -> bool:
+    """Same routing as the runners: opencode is local-only; under claude only
+    an alias with an Ollama base URL is local."""
+    return harness == "opencode" or (model_alias in MODELS
+                                     and MODELS[model_alias][1] is not None)
+
+
+def load_local_fallback():
+    """homelab's bin/lib/local_fallback.py, or None. Never raises."""
+    root = Path(os.environ.get("SKILL_EVALS_HOMELAB") or Path.home() / "Code" / "homelab")
+    lib = root / "bin" / "lib" / "local_fallback.py"
+    if not lib.is_file():
+        print(f"local-fallback: no emitter at {lib}; no events recorded",
+              file=sys.stderr)
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("local_fallback", lib)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.new_event, mod.emit  # noqa: B018 - the two calls used here
+        return mod
+    except Exception as e:  # telemetry must not break the eval
+        print(f"local-fallback: could not load {lib}: {e}", file=sys.stderr)
+        return None
+
+
+def fill_event(ev: dict, row: dict, duration_s: float, harness: str) -> dict:
+    """Set the outcome fields of a local-fallback/v1 event from one row."""
+    verdict, _, code = judge(row)
+    ev["gate_outcome"] = verdict
+    ev["failure_class"] = ("none" if verdict == "pass"
+                           else "infra" if code == "eval_error" else "gate")
+    ev["failure_reason"] = code
+    # The gate's code first, then the with-arm graders that failed, most
+    # often first: what the model actually got wrong with the skill loaded.
+    graders = sorted(row["failed_graders"]["with"].items(), key=lambda kv: (-kv[1], kv[0]))
+    ev["failure_reasons"] = [] if code == "none" else [code] + [g for g, _ in graders]
+    ev["escalated_to"] = "claude-code" if code in MODEL_FAILURES else "none"
+    # One gated attempt per case. The runs are samples of it, not retries,
+    # so they must not count on the "passes the retry rescued" panel.
+    ev["attempts"] = 1
+    ev["duration_s"] = round(duration_s, 1)
+    ev["skill"] = row["skill"]
+    ev["harness"] = harness
+    ev["runs"] = {"with": len(row["with"]), "without": len(row["without"])}
+    return ev
+
+
+def with_events(runner, lf, model_alias: str, harness: str):
+    """Wrap a runner so each case it runs records one event. Never raises
+    from the telemetry side: the row is returned untouched either way."""
+    model = MODELS.get(model_alias, (model_alias,))[0]
+
+    def run(c, *args, **kwargs):
+        try:
+            ev = lf.new_event(f"skill-eval-{c['case']}", model, EVAL_GATE)
+        except Exception as e:
+            print(f"local-fallback: could not start event: {e}", file=sys.stderr)
+            ev = None
+        t0 = time.monotonic()
+        row = runner(c, *args, **kwargs)
+        if ev is not None:
+            try:
+                lf.emit(fill_event(ev, row, time.monotonic() - t0, harness))
+            except Exception as e:
+                print(f"local-fallback: could not record event: {e}", file=sys.stderr)
+        return row
+    return run
+
 
 def changed_skills(repo: Path, ref: str) -> set[str]:
     """Skills whose SKILL.md or evals/ the branch changed since it left REF.
@@ -260,6 +346,38 @@ def load_known_failing(repo: Path, all_cases: list[dict]) -> dict[str, str]:
     return known
 
 
+def judge(r: dict) -> tuple[str, str, str]:
+    """One row's verdict under the gate rule: (verdict, why, reason code).
+
+    verdict is pass, fail or error; the reason code is `none` on a pass and a
+    stable code otherwise (never_fired, no_effect, fired_when_should_not,
+    no_skill_grader, eval_error), for the local-fallback event (skills#126)."""
+    name = f"skill {r['skill']} case {r['case']}"
+    if r["errors"]:
+        return "error", f"{name} errored: {r['errors'][0]}", "eval_error"
+    if r.get("should_not_fire"):
+        fired_ = r.get("fired")
+        if fired_ is None:
+            return "fail", (f"{name} should not fire, but has no "
+                            "`tool_used: Skill` grader to tell"), "no_skill_grader"
+        fired_s = f"{sum(fired_)}/{len(fired_)}"
+        if any(fired_):
+            return "fail", f"{name} should not fire but fired {fired_s}", "fired_when_should_not"
+        return "pass", f"{name} (should not fire: fired {fired_s})", "none"
+    d = mean(r["with"]) - mean(r["without"])
+    se = delta_se(r["with"], r["without"])
+    fired = r.get("fired")
+    fired_s = f"{sum(fired)}/{len(fired)}" if fired is not None else "—"
+    never = fired is not None and not any(fired)
+    stats = f"fired {fired_s}, Δ {d:+.2f}, SE {se:.2f}"
+    # Δ must clear twice its standard error: `delta <= 0` passed a
+    # gutted skill on one partial run in ten (skills#120 AC2, live).
+    if never or d <= 2 * se:
+        return ("fail", f"{name} fired {fired_s} or delta <= 2·SE ({stats})",
+                "never_fired" if never else "no_effect")
+    return "pass", f"{name} ({stats})", "none"
+
+
 def gate(rows: list[dict], known: dict[str, str]) -> tuple[list[str], bool]:
     """The PR rule (skills#120 AC2): a case fails if its skill never fired in
     the with arm, or Δ (with − without) does not clear twice its standard
@@ -272,31 +390,7 @@ def gate(rows: list[dict], known: dict[str, str]) -> tuple[list[str], bool]:
     lines, failed = [], False
     for r in rows:
         key = f"{r['skill']}/{r['case']}"
-        name = f"skill {r['skill']} case {r['case']}"
-        if r["errors"]:
-            verdict, why = "error", f"{name} errored: {r['errors'][0]}"
-        elif r.get("should_not_fire"):
-            fired_ = r.get("fired")
-            if fired_ is None:
-                verdict, why = "fail", (f"{name} should not fire, but has no "
-                                        "`tool_used: Skill` grader to tell")
-            else:
-                fired_s = f"{sum(fired_)}/{len(fired_)}"
-                verdict = "fail" if any(fired_) else "pass"
-                why = (f"{name} should not fire but fired {fired_s}" if any(fired_)
-                       else f"{name} (should not fire: fired {fired_s})")
-        else:
-            d = mean(r["with"]) - mean(r["without"])
-            se = delta_se(r["with"], r["without"])
-            fired = r.get("fired")
-            fired_s = f"{sum(fired)}/{len(fired)}" if fired is not None else "—"
-            never = fired is not None and not any(fired)
-            # Δ must clear twice its standard error: `delta <= 0` passed a
-            # gutted skill on one partial run in ten (skills#120 AC2, live).
-            verdict = "fail" if never or d <= 2 * se else "pass"
-            stats = f"fired {fired_s}, Δ {d:+.2f}, SE {se:.2f}"
-            why = (f"{name} fired {fired_s} or delta <= 2·SE ({stats})"
-                   if verdict == "fail" else f"{name} ({stats})")
+        verdict, why, _ = judge(r)
         if key in known and verdict != "pass":
             lines.append(f"KNOWN: {why} [{known[key]}]")
         elif key in known:
@@ -458,13 +552,18 @@ def main(argv=None) -> int:
         slug = model.replace("/", "_").replace(":", "_")
         if a.harness == "opencode":
             slug += ".opencode"
+        run = runner
+        if is_local(model, a.harness):
+            lf = load_local_fallback()
+            if lf is not None:
+                run = with_events(runner, lf, model, a.harness)
         if a.keep:
             work = out / "raw" / slug
             work.mkdir(parents=True, exist_ok=True)
-            rows = run_all(runner, cases, model, a.runs, work, True, a.max_cost_usd)
+            rows = run_all(run, cases, model, a.runs, work, True, a.max_cost_usd)
         else:
             with tempfile.TemporaryDirectory(prefix="skill-evals-run-") as work:
-                rows = run_all(runner, cases, model, a.runs, Path(work), False,
+                rows = run_all(run, cases, model, a.runs, Path(work), False,
                                a.max_cost_usd)
         title = f"{model} (opencode)" if a.harness == "opencode" else model
         md = table(title, rows)

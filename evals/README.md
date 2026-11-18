@@ -91,6 +91,20 @@ says nothing about the skill, whatever it is. The JSON also counts failed
 under `<out>/raw/<model>/` and each run's sandbox, whose `trace.jsonl` (the
 run's `tracePath` in the raw JSON) shows every tool call.
 
+**Local-fallback events (skills#126).** A local model's run (`--harness
+opencode`, or a qwen alias under the Claude harness) also records one
+`local-fallback/v1` event per case, pass or fail, with `task_type`
+`skill-eval-<case>`, so it shows on homelab's "Local model fallbacks" dashboard
+next to `draft-issue`. The outcome is the `--gate` rule, whether or not
+`--gate` is passed: `failure_reason` is `never_fired`, `no_effect` or
+`fired_when_should_not` (escalated to `claude-code`), or `eval_error` (infra,
+not a fallback), and `failure_reasons` adds the with-arm `failed_graders`. The
+emitter is imported from `$SKILL_EVALS_HOMELAB/bin/lib/local_fallback.py`
+(default `~/Code/homelab`); without that checkout, nothing is recorded. Neither
+case changes the table, the JSON or the exit code. Schema and delivery:
+homelab `architecture/local-fallback-telemetry.md`. Claude models record
+nothing.
+
 **Run it outside any sandbox.** A case that grants Bash makes the eval confine
 the shell with bubblewrap. That needs a nested user namespace, which fails in
 two places:

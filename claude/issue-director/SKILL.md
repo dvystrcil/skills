@@ -105,11 +105,22 @@ approves the shortlist, you review every result, and the owner merges.
 ## Phase 3: direct
 
 - As each result arrives, review the diff (`/code-review`).
-- **Watch CI yourself, without polling.** Start one background shell per PR that
-  blocks until its checks finish (`gh pr checks <n> -R <repo> --watch`). It costs
-  nothing while it waits, and you're notified when it exits. Don't watch CI with
-  repeated check calls, and don't leave it to the agents: an agent that waits on
-  CI spends tokens on every check and stays open the whole time.
+- **Watch CI yourself, without polling.** Run the bundled script in a background
+  shell. Pass it one PR or several:
+
+  ```
+  ~/.claude/skills/issue-director/bin/wait-pr-checks.sh OWNER/REPO#N [OWNER/REPO#N ...]
+  ```
+
+  It waits for each PR's checks to register, then blocks until they finish. Then
+  it prints every row and a `== OWNER/REPO#N rc=…` verdict line, and exits 0
+  only if every PR passed. It costs nothing while it waits, and you're notified
+  when it exits.
+- Don't write your own wait loop around `gh pr checks`. Piping it into
+  `wc`/`tail`/`grep` trips the pr-checks-pipe-guard hook, which costs the owner a
+  prompt, and can hide failing rows. Don't leave CI to the agents either: an
+  agent that waits on CI spends tokens on every check and stays open the whole
+  time.
 - If a check fails, send the failing job's log excerpt to the agent that did the
   work (`SendMessage`). It picks up with its context intact.
 - Send fixes back to the agent that did the work (`SendMessage`) rather than

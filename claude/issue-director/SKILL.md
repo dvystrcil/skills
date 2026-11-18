@@ -93,13 +93,25 @@ approves the shortlist, you review every result, and the owner merges.
   have, push it to the draft PR, and report what's left. Don't push on. Work
   that's pushed survives a lost context.
 - Commit and push at each working step, not only at the end.
+- Run the checks you can run locally (tests, linters, `act`) **before** you push.
+- **Don't wait on CI.** Your job ends when the work is pushed and the draft PR is
+  open. Report and finish. Never poll `gh pr checks` or watch a run: the
+  director watches CI, and if a check fails it sends the failure back to you to
+  fix.
 - Keep the final report to five lines or fewer: PR URL, what changed, tests and
   their results, open questions. Put the details in the PR description, not the
   report.
 
 ## Phase 3: direct
 
-- As each result arrives, review the diff (`/code-review`) and check CI.
+- As each result arrives, review the diff (`/code-review`).
+- **Watch CI yourself, without polling.** Start one background shell per PR that
+  blocks until its checks finish (`gh pr checks <n> -R <repo> --watch`). It costs
+  nothing while it waits, and you're notified when it exits. Don't watch CI with
+  repeated check calls, and don't leave it to the agents: an agent that waits on
+  CI spends tokens on every check and stays open the whole time.
+- If a check fails, send the failing job's log excerpt to the agent that did the
+  work (`SendMessage`). It picks up with its context intact.
 - Send fixes back to the agent that did the work (`SendMessage`) rather than
   redoing it yourself.
 - Pass blocking questions on to the owner in short form, with the issue named.

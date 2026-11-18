@@ -30,6 +30,12 @@ approves the shortlist, you review every result, and the owner merges.
    Then filter it down to the repos in scope. Check first how many there are per
    repo: homelab alone can hold 100+, so read titles and labels to shortlist
    before you open any issue in full.
+   **Check each candidate isn't already done.** A merged PR that said
+   `For #N` or `Refs #N` leaves its issue open. On 2026-11-18, 2 of 11 approved
+   issues (homelab#2062, #2074) had already been fixed that way, and their
+   agents spent a slot finding out. Search
+   `gh pr list -R <owner>/<repo> --state merged --search "<N> in:body"` and read
+   the last comments. A done one is yours to verify and close, not an agent's.
 2. Propose up to 10 candidates. Give each one:
    - `repo#num` and a one-line goal
    - a size (S, M or L)
@@ -113,7 +119,8 @@ approves the shortlist, you review every result, and the owner merges.
   ```
 
   It waits for each PR's checks to register, then blocks until they finish. Then
-  it prints every row and a `== OWNER/REPO#N rc=…` verdict line, and exits 0
+  it prints every row and a `== OWNER/REPO#N rc=<code> PASS|FAIL|PENDING`
+  verdict line, and exits 0
   only if every PR passed. It costs nothing while it waits, and you're notified
   when it exits.
 - Don't write your own wait loop around `gh pr checks`. Piping it into

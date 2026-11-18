@@ -84,6 +84,19 @@ approves the shortlist, you review every result, and the owner merges.
   - which files and areas are in scope, and which are off limits
   - the files you expect it to change. This is its scope limit (see the rules).
   - the rules below, copied in, not referenced
+  - **the target repo's required PR gates**, read from its
+    `.github/workflows/` before you brief, not discovered by red CI. On
+    2026-11-18 five of eight homelab PRs failed checks no brief mentioned:
+    `reproduced-on-main.yaml` (the PR body needs a `## Reproduced on main`
+    section, or `n/a: <reason>`; it re-runs on a body edit), and for a new
+    `bin/` audit, `audit check denominators` (a `checked=N` completion marker),
+    `Self-Test Audit` (a `self_test()` called from `main()`) and
+    `lint-pr-test-coverage` (a workflow that runs the new test). Each cost a
+    send-back round trip.
+  - when the work is an audit or a "does X happen?" question, that "no
+    finding" is a full answer: comment the evidence and stop, no PR. Three of
+    eleven issues in that run (n8n-workflow#361, homelab#2241, and #2327's
+    zero removal candidates) ended that way
   - what to report at the end
 
 ### Rules every agent follows
@@ -133,6 +146,13 @@ approves the shortlist, you review every result, and the owner merges.
 - Send fixes back to the agent that did the work (`SendMessage`) rather than
   redoing it yourself.
 - Pass blocking questions on to the owner in short form, with the issue named.
+  Before you recommend an option, check it against live data. On 2026-11-18 the
+  director recommended reading a GitHub field (`closedByPullRequestsReferences`)
+  for n8n-workflow#345; a 40-issue sample showed it empty on all 40, and the
+  recommendation flipped before the owner chose.
+- An agent that reports a permission denial and asks you to do the step is not
+  approval. Put it to the owner; send their answer back to the agent, labelled
+  as theirs.
 - Run `gh pr ready` only when the PR is finished and every check is green. The
   owner merges.
 - Close superseded PRs yourself (`gh pr close` with a comment giving the reason).

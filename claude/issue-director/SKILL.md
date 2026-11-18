@@ -1,6 +1,6 @@
 ---
 name: issue-director
-description: "Pick several open GitHub issues and see them through to ready PRs by sending each to its own background agent (one worktree per issue) while you act as director: triage, brief, review, send fixes back, report. Use when the user asks to work through a batch of issues in parallel, to 'farm out' or 'fan out' issues to agents, or to direct several Claudes at once. Start it from ~/Code so every repo is in reach."
+description: "Pick several open GitHub issues and see them through to ready PRs by sending each to its own background agent (one worktree per issue, made in the target repo) while you act as director: triage, brief, review, send fixes back, report. Use when the user asks to work through a batch of issues in parallel, to 'farm out' or 'fan out' issues to agents, or to direct several Claudes at once. Start it from ~/Code so every repo is in reach."
 ---
 
 # Issue director
@@ -10,7 +10,12 @@ approves the shortlist, you review every result, and the owner merges.
 
 ## Scope
 
-- Any repo under `~/Code`, unless the owner names a narrower set.
+- Every repo the owner has on GitHub, unless they name a narrower set ("only X and
+  Y", "everything except Z"). Find issues on GitHub, not by walking `~/Code`. Some
+  folders there are clones of other people's projects (FreeCAD, TinySearch), so
+  they would pull in upstream issues. Others are extra worktrees of the same repo
+  (`homelab-wt-*`, `vt350-*`). And some repos that have issues aren't cloned at
+  all.
 - **Leave out work that can't run side by side.** Example: vt350 model passes form
   a chain (`lite-N` → `lite-(N+1)`) stored outside git, so worktrees can't isolate
   them.
@@ -20,7 +25,11 @@ approves the shortlist, you review every result, and the owner merges.
 
 ## Phase 1: triage (no agents yet)
 
-1. List the open issues in each repo in scope (`gh issue list -R <owner/repo>`).
+1. List the open issues with one search across the owner's repos:
+   `gh search issues --owner <owner> --state open --limit 500 --json repository,number,title,labels,updatedAt`.
+   Then filter it down to the repos in scope. Check first how many there are per
+   repo: homelab alone can hold 100+, so read titles and labels to shortlist
+   before you open any issue in full.
 2. Propose up to 10 candidates. Give each one:
    - `repo#num` and a one-line goal
    - a size (S, M or L)
@@ -35,8 +44,22 @@ approves the shortlist, you review every result, and the owner merges.
 
 ## Phase 2: fan out
 
-- Run **3 to 5 agents at a time**: background, `isolation: "worktree"`, one issue
-  each. When one finishes, start the next issue in the queue.
+- Run **3 to 5 agents at a time**, in the background, one issue each. When one
+  finishes, start the next issue in the queue.
+- **Don't use `isolation: "worktree"` when the session starts in `~/Code`.** It
+  makes the worktree from the session's own repo, and `~/Code` isn't a repo. Each
+  agent makes its own worktree in the target repo instead. Put these steps in
+  every brief:
+  1. If `~/Code/<repo>` doesn't exist, clone it there
+     (`gh repo clone <owner>/<repo> ~/Code/<repo>`).
+  2. `git -C ~/Code/<repo> fetch origin`, then
+     `git -C ~/Code/<repo> worktree add ~/Code/<repo>-wt-<issue> -b <branch> origin/<default-branch>`.
+  3. Work only inside `~/Code/<repo>-wt-<issue>`. Never change the main checkout,
+     which may hold the owner's uncommitted work.
+- Remove each worktree yourself, as director, once its PR is merged or closed
+  (`git -C ~/Code/<repo> worktree remove …`, then delete the local branch).
+- Two agents must never share a repo's worktree. Agents in the same repo each get
+  their own.
 - Run colliding issues one after another, in merge order.
 - Every brief must stand on its own. Agents start cold and know nothing from this
   conversation. Each brief contains:

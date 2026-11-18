@@ -58,6 +58,16 @@ run RC_11=0 RC_12=1
 [ "$rc" = 1 ] && ok "one failed -> exit 1" || bad "one failed -> exit 1 (got $rc)"
 grep -q "lint	fail" <<<"$out" && ok "failing row is printed" || bad "failing row is printed"
 
+# The verdict names the outcome in one word. It used to end in a fixed legend,
+# "(0 passed, 1 failed, 8 pending)", which two readers on 2026-11-18 took for
+# counts on an all-green PR. Nothing on a passing PR's verdict may say "failed".
+grep -qx "== o/r#11 rc=0 PASS" <<<"$out" && grep -qx "== o/s#12 rc=1 FAIL" <<<"$out" \
+  && ! grep "^== o/r#11 rc=" <<<"$out" | grep -qi "fail" \
+  && ok "verdict word: PASS / FAIL, no legend" || bad "verdict word: PASS / FAIL, no legend"
+run RC_11=8 RC_12=0
+grep -qx "== o/r#11 rc=8 PENDING" <<<"$out" \
+  && ok "verdict word: PENDING" || bad "verdict word: PENDING"
+
 run RC_11=0 RC_12=0 LATE_11=3
 [ "$rc" = 0 ] && grep -q "== o/r#11 rc=0" <<<"$out" \
   && ok "waits for checks that register late" || bad "waits for checks that register late (got $rc)"

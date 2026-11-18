@@ -10,7 +10,8 @@
 #   1. wait until its checks have registered (a fresh push shows none for a
 #      while, and `gh pr checks --watch` gives up at once when there are none)
 #   2. block on `gh pr checks --watch` (no output, no polling turns)
-#   3. print `gh pr checks` in full, then `== OWNER/REPO#N rc=<code>`
+#   3. print `gh pr checks` in full, then `== OWNER/REPO#N rc=<code> <WORD>`
+#      (PASS for 0, FAIL for 1, PENDING for 8, ERROR otherwise)
 #
 # Exit: 0 all passed, 1 any failed / pending / never registered, 2 bad usage.
 # Env: WAIT_PR_CHECKS_REGISTER  seconds to wait for checks to appear (300)
@@ -48,7 +49,9 @@ for a in "$@"; do
   echo "== $a"
   gh pr checks "$n" -R "$repo"
   rc=$?
-  echo "== $a rc=$rc (0 passed, 1 failed, 8 pending)"
+  # One word, not a legend: "(0 passed, 1 failed, 8 pending)" read as counts.
+  case "$rc" in 0) word=PASS ;; 1) word=FAIL ;; 8) word=PENDING ;; *) word=ERROR ;; esac
+  echo "== $a rc=$rc $word"
   [ "$rc" -eq 0 ] || overall=1
 done
 exit "$overall"

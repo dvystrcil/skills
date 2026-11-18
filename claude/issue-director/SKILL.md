@@ -36,10 +36,21 @@ approves the shortlist, you review every result, and the owner merges.
    - what "done" means (its acceptance criteria)
    - **parallel** or **collides with X** (same files, same service, or a merge
      order that matters)
-3. Flag every candidate that touches live infrastructure (cluster, ArgoCD,
+3. **Size every candidate so one agent can finish it in one session.** An agent
+   that runs long gets its context summarized, and after that it loses earlier
+   decisions and redoes work. So:
+   - S and M issues each go to one agent, in one PR.
+   - Split every L issue, and every issue that would need more than one PR, into
+     slices before you brief anyone. Each slice gets its own agent and PR, and
+     the slices run one after another in merge order. Show the slices in the
+     shortlist.
+   - If an issue can't be split cleanly (it's unclear, design-heavy, or needs the
+     owner throughout), leave it out of the run and say why. It suits a dedicated
+     session better.
+4. Flag every candidate that touches live infrastructure (cluster, ArgoCD,
    secrets, DNS). Its brief needs a `change-validation` plan, not just a PR. If the
    owner asked for code and docs only, leave those issues out instead.
-4. **Stop and show the shortlist.** Nothing launches until the owner approves or
+5. **Stop and show the shortlist.** Nothing launches until the owner approves or
    trims it.
 
 ## Phase 2: fan out
@@ -65,6 +76,7 @@ approves the shortlist, you review every result, and the owner merges.
   conversation. Each brief contains:
   - the issue URL and its acceptance criteria
   - which files and areas are in scope, and which are off limits
+  - the files you expect it to change. This is its scope limit (see the rules).
   - the rules below, copied in, not referenced
   - what to report at the end
 
@@ -76,8 +88,14 @@ approves the shortlist, you review every result, and the owner merges.
   (`homelab-secrets` / `secrets-hygiene`, `change-validation`, `tdd`, …).
 - Change the live cluster only through GitOps. Take no destructive actions.
 - When a judgment call blocks the work, stop and report the question. Don't guess.
-- The final report gives the PR URL, what changed, the tests run with their
-  results, and any open questions.
+- **Stay within the scope limit.** If the work grows well beyond the files the
+  brief expects, or your context has been summarized once, stop: commit what you
+  have, push it to the draft PR, and report what's left. Don't push on. Work
+  that's pushed survives a lost context.
+- Commit and push at each working step, not only at the end.
+- Keep the final report to five lines or fewer: PR URL, what changed, tests and
+  their results, open questions. Put the details in the PR description, not the
+  report.
 
 ## Phase 3: direct
 
@@ -90,6 +108,13 @@ approves the shortlist, you review every result, and the owner merges.
 - Close superseded PRs yourself (`gh pr close` with a comment giving the reason).
 - Keep one status table (issue, agent, PR, CI, state). Show it when something
   changes, not on every notification.
+- When an agent stops at its scope limit, treat what's left as a new slice: brief
+  a fresh agent from the PR and its report. Don't keep extending the old one.
+- **Keep your own context lean.** Read PR diffs on demand rather than pasting
+  them whole. If your session gets long, or has already been summarized, write a
+  handoff to memory: the status table, the queue, the open questions, and the
+  worktrees that still need removing. A fresh director session can then take over
+  from it.
 
 ## Wrap-up
 

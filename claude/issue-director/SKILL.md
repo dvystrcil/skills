@@ -148,9 +148,23 @@ approves the shortlist, you review every result, and the owner merges.
 
 ## Wrap-up
 
-- Give a final table: each issue, its PR, its state, and what needs the owner's
-  decision.
-- Add a short note on how the run went: cost, collisions, and what to change next
-  time. If something surprising happened, record it in this skill, in the same
-  branch.
+- Give a final table: each issue, its PRs, its state, what closes it, and what
+  needs the owner's decision.
+- **Put the outcome on every issue, not only in this chat.** The chat ends; the
+  issue is what you or a future session will read. For each issue in the run:
+  - If every acceptance criterion is met, close it (`gh issue close -c …`) with
+    links to its PRs.
+  - If it stays open (waiting on a live event, a later run, or the owner), post a
+    comment: the merged PRs with their merge commits, and a **Left open until:**
+    line naming exactly what closes it.
+  - A PR that says `Refs #N` or `For #N` doesn't close anything, so this step is
+    the only thing that will.
+- **Check that each merged PR's description matches its diff.** Compare the
+  description with `gh pr diff <n> --name-only`. An agent can give a PR the wrong
+  description (in the first run, homelab#2383 carried #2384's text). If one is
+  wrong, fix it from the squash commit message.
+- Add a short note on how the run went: collisions, what to change next time,
+  and **cost**. Put a rough token figure on cost, taken from the agent list (for
+  example, "4 agents at ~120–130k tokens each"). If something surprising
+  happened, record it in this skill, in the same branch.
 - Give times in Pacific (PST/PDT).

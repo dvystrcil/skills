@@ -84,7 +84,7 @@ def _js(obj) -> str:
 def normalise(events: list[dict], max_turns: int | None = None) -> dict:
     """opencode `run --format json` events -> calls, trace, final text, steps."""
     calls, lines, texts = [], [], []
-    steps, last_reason, errors = 0, None, []
+    steps, finished, errors = 0, 0, []
     for e in events:
         part = e.get("part") or {}
         kind = part.get("type")
@@ -93,7 +93,7 @@ def normalise(events: list[dict], max_turns: int | None = None) -> dict:
         elif kind == "step-start":
             steps += 1
         elif kind == "step-finish":
-            last_reason = part.get("reason")
+            finished += 1
         elif kind == "text" and part.get("text"):
             texts.append(part["text"])
             lines.append(_js({"type": "assistant", "message": {"role": "assistant", "content": [
@@ -110,7 +110,14 @@ def normalise(events: list[dict], max_turns: int | None = None) -> dict:
             lines.append(_js({"type": "user", "message": {"role": "user", "content": [
                 {"type": "tool_result", "tool_use_id": cid, "content": "" if out is None else str(out),
                  "is_error": state.get("status") != "completed"}]}}))
-    capped = bool(max_turns) and steps >= max_turns and last_reason == "tool-calls"
+    # opencode runs the step numbered `steps` with tools off and a "MAXIMUM
+    # STEPS REACHED" message (2.3.2, SessionRunner.runStep), so a capped run's
+    # last step usually finishes `stop`, like a run that stopped on its own.
+    # A run only reaches that step if every step before it called tools, so
+    # finishing `max_turns` steps is the cap. Count finished steps, not starts:
+    # a retried step starts twice, and a run killed by the timeout has an
+    # unfinished one (skills#174).
+    capped = bool(max_turns) and finished >= max_turns
     return {"calls": calls, "trace": "\n".join(lines) + "\n", "final": texts[-1] if texts else "",
             "steps": steps, "capped": capped, "errors": errors}
 

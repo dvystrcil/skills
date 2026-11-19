@@ -9,7 +9,6 @@
 # Each fails the rule: the skill never fired, or Δ <= 2·SE (gate rule since
 # skills#120's live AC2 run; before that the rule was Δ <= 0).
 homelab-secrets/literal-password-in-manifest     fired 4/10; Δ +0.63 (qwen x10, 2026-11-18, skills#139); below the issue's 8/10 bar
-three-anchor-truthiness/jvm-heap-on-a-go-service skill fired 0/10; Δ -0.15 (qwen x10, 2026-11-18). Claude fires 10/10 but scores 0.10: skill body, not trigger
 three-anchor-truthiness/two-versus-one-drift     skill fired 0/10; Δ +0.07 (qwen x10, 2026-11-18). Claude 10/10, +0.90: fallback candidate
 #
 # These two passed the old Δ <= 0 rule only by noise; under 2·SE they fail it:

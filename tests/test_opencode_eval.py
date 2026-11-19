@@ -108,6 +108,13 @@ class Normalise(unittest.TestCase):
         self.assertTrue(self.m.normalise(events, max_turns=3)["capped"])
         self.assertFalse(self.m.normalise(events, max_turns=4)["capped"])
 
+    def test_turn_capped_counts_finished_steps_not_starts(self):
+        # A retried step emits a second step-start for the same step.
+        events = [ev_step(), {"type": "retry"}, ev_step(), ev_tool("glob", {}), ev_step("tool-calls"),
+                  ev_step(), ev_text("stopping"), ev_step("stop")]
+        self.assertFalse(self.m.normalise(events, max_turns=3)["capped"])
+        self.assertTrue(self.m.normalise(events, max_turns=2)["capped"])
+
     def test_failed_tool_calls_still_count(self):
         # A call the harness rejected is still something the agent did: a
         # "never ran X" grader must see it.
@@ -120,6 +127,49 @@ class Normalise(unittest.TestCase):
         run = self.m.normalise([ev_step(), ev_tool("run_shell", {"cmd": "ls"}),
                                 ev_step("tool-calls")])
         self.assertEqual(run["calls"][0]["name"], "run_shell")
+
+
+class RecordedTurnCap(unittest.TestCase):
+    """turn_capped against real opencode event streams (skills#174).
+
+    Fixture: tests/fixtures/opencode_eval/turn_capped_streams.json, trimmed by
+    keeping only the fields normalise() reads. Provenance (workstation, under
+    /mnt/shared/claude-scratch/):
+      * capped, early_stop: skills-171/red/raw/qwen3-coder-next.opencode/
+        filebrowser-stable-channel/{without-6,with-5}, the opencode 2.3.2 run
+        for skills#171 on 2026-11-19 (max_turns 12). That run's summary
+        recorded turn_capped 0 although 9 of its 20 runs used all 12 steps.
+      * timed_out: skills-125/run-20261116T220002/raw/qwen3635b.opencode/
+        vt350-refresh-goes-to-lane/without-10, 2026-11-16 (max_turns 20).
+
+    opencode 2.3.2 (SessionRunner.runStep) runs the step numbered `steps` with
+    toolChoice "none" and a "MAXIMUM STEPS REACHED" message, so a capped run's
+    last step finishes `stop`, the same reason as a run that stopped on its own.
+    The step count is what tells them apart.
+    """
+
+    FIXTURE = REPO / "tests" / "fixtures" / "opencode_eval" / "turn_capped_streams.json"
+
+    def setUp(self):
+        self.m = load()
+        self.streams = json.loads(self.FIXTURE.read_text())["streams"]
+
+    def run_stream(self, name):
+        s = self.streams[name]
+        return self.m.normalise(s["events"], s["max_turns"])
+
+    def test_turn_capped_when_last_forced_step_finishes_stop(self):
+        events = self.streams["capped"]["events"]
+        finishes = [e["part"]["reason"] for e in events if e["part"].get("type") == "step-finish"]
+        self.assertEqual((len(finishes), finishes[-1]), (12, "stop"))  # the premise
+        self.assertTrue(self.run_stream("capped")["capped"])
+
+    def test_turn_capped_false_when_model_stops_under_the_cap(self):
+        self.assertFalse(self.run_stream("early_stop")["capped"])
+
+    def test_turn_capped_false_when_killed_by_timeout_before_the_cap(self):
+        # 20 step-starts (one a retry) but only 18 finished steps of 20.
+        self.assertFalse(self.run_stream("timed_out")["capped"])
 
 
 @NEEDS_NODE

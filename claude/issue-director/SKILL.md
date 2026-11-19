@@ -36,6 +36,11 @@ approves the shortlist, you review every result, and the owner merges.
    agents spent a slot finding out. Search
    `gh pr list -R <owner>/<repo> --state merged --search "<N> in:body"` and read
    the last comments. A done one is yours to verify and close, not an agent's.
+   **Read the body for start conditions, not only the last comments.** Grep it
+   for `not start before`, `after 20`, `once`, `wait`. On 2026-11-19
+   homelab#2255 said "Do not start before 2026-11-21" in its second paragraph.
+   The director checked only comments, briefed it, and got a provisional PR
+   that has to sit as a draft until the date.
    **Check where the work belongs, not just where the issue is filed.** A
    model comparison, replay or eval (models × inputs → scores) goes in
    `dvystrcil/model-testing` as a payload group run by `run_benchmark.py`.
@@ -89,7 +94,16 @@ approves the shortlist, you review every result, and the owner merges.
 - Run colliding issues one after another, in merge order.
 - Every brief must stand on its own. Agents start cold and know nothing from this
   conversation. Each brief contains:
-  - the issue URL and its acceptance criteria
+  - the issue URL and its acceptance criteria. **When the issue defines the
+    slice (items C1…Cn), copy every item from the body; don't summarize from a
+    `grep -A` excerpt.** On 2026-11-19 a truncated grep dropped C4 and D4 from
+    quality-first-slicer#55's briefs, which cost one send-back and one extra
+    agent. Also tell the agent "the issue's item list is authoritative".
+  - on a **public** repo (`gh repo view --json visibility`): never paste the
+    owner's memory, transcripts or private-repo content into a PR body or
+    commit. Use a synthetic sample. On 2026-11-19 skills#179's body showed
+    three real memory-index lines. They were edited out, but GitHub keeps the
+    edit history.
   - which files and areas are in scope, and which are off limits
   - the files you expect it to change. This is its scope limit (see the rules).
   - the rules below, copied in, not referenced
@@ -209,6 +223,16 @@ approves the shortlist, you review every result, and the owner merges.
   handoff to memory: the status table, the queue, the open questions, and the
   worktrees that still need removing. A fresh director session can then take over
   from it.
+
+- **After the owner merges, check the target repo's build on `main`.** Steps
+  gated on `push` to `main` (publish, post-push image asserts, release) never
+  run on the PR, so a green PR can still break `main`. On 2026-11-19
+  gpu-batch-docker#41 (Blender 5.2 → 5.3) was green, then the post-push assert's
+  literal `^Blender 5\.2\.` failed `build` and skipped the release; fixed in #42.
+  `gh run list -R <repo> --branch main --limit 3` after each merge.
+- **Merge the lessons PR promptly.** The installed skill reads `main`. On
+  2026-11-19 the second run re-hit two lessons (the `Reproduced on main` gate,
+  and re-running a body check) that sat in this file's unmerged draft.
 
 ## Wrap-up
 

@@ -440,7 +440,75 @@ score the same and they would fail AC4 by construction:
 Each becomes testable once its rule is in a skill. Moving the rule into a skill
 is also what makes it reach sessions that never load AGENTS.md.
 
+## Per-model results: 2026-11-16, `--harness opencode`, both qwen models ×10 (skills#125)
+
+https://github.com/dvystrcil/skills/issues/125 re-ran every `default` case
+(the 8 below plus the should-not-fire `three-anchor-truthiness/user-supplied-value`)
+at **10 runs per arm** on both local models under `--harness opencode`, the
+harness that puts the git root at the cwd. Started 2026-11-16 10:00 PM PST,
+finished 2026-11-17 4:37 AM PST (qwen3-coder-next about 1.6 h, qwen3.6:35b
+about 5 h), skills@`f3b28d7`, 0 errored. Files:
+`evals/baselines/2026-11-16/{qwen3-coder-next,qwen3635b}.opencode.{md,json}`
+(per-run scores, fired flags, failed graders; the traces were not committed).
+
+qwen3635b (opencode, ×10): mean over 9 cases with 0.46 → without 0.33, Δ +0.13 (Claude Code harness, 2026-11-14, 8 cases: +0.16).
+qwen3-coder-next (opencode, ×10): mean over 9 cases with 0.46 → without 0.33, Δ +0.12 (opencode, 2026-11-14, 8 cases: +0.18).
+
+**Read these with two caveats:**
+
+- **The skill text is older than `main`.** `f3b28d7` predates
+  https://github.com/dvystrcil/skills/pull/168 (descriptions rewritten so qwen
+  fires them), https://github.com/dvystrcil/skills/pull/173 (image-updater) and
+  https://github.com/dvystrcil/skills/pull/172 (three-anchor). The fire rates
+  below are for the old descriptions. For qwen3-coder-next, six cases were
+  re-measured after #168 in `evals/baselines/2026-11-18-skills139/`; where the
+  two disagree, that run is the current one.
+- **"hit max_turns" may be an undercount.**
+  https://github.com/dvystrcil/skills/issues/174: the opencode harness
+  under-reports `turn_capped`. Scores and fire counts are not affected.
+
+SE is the standard error of Δ, as the gate computes it (`delta_se`). "Gate"
+is the CI rule: fired at least once and Δ > 2·SE (should-not-fire: fired 0/10).
+CC is the Claude Code harness run of 2026-11-14 (`evals/baselines/2026-11-14/qwen3635b.md`).
+
+| Case | qwen3.6:35b opencode: with → without (Δ), SE, fired | qwen3.6:35b CC (2026-11-14) | qwen3-coder-next opencode: with → without (Δ), SE, fired | Gate (3635b / coder-next) |
+|---|---|---|---|---|
+| `file-issue/follow-up-goes-to-draft-issue` | 0.95 → 0.20 (**+0.75**), 0.09, 9/10 | 0.85 → 0.15 (+0.70), 9/10 | 1.00 → 0.05 (**+0.95**), 0.05, 10/10 | pass / pass |
+| `homelab-image-updater/filebrowser-stable-channel` | 0.72 → 0.60 (+0.12), 0.06, 3/10 | 0.78 → 0.60 (+0.18), 7/10 | 0.28 → 0.48 (**−0.20**), 0.14, 2/10 | pass (at the edge) / fail |
+| `batch-lane/vt350-refresh-goes-to-lane` | 0.75 → 0.68 (+0.07), 0.06, 4/10; timed out 7/10 → 6/10 | 0.70 → 0.55 (+0.15), 3/10 | 0.88 → 0.70 (**+0.18**), 0.06, 4/10; timed out 3/10 → 0/10 | fail / pass |
+| `homelab-secrets/literal-password-in-manifest` | 0.27 → 0.27 (0), 0.11, 1/10 | 0.43 → 0.20 (+0.23), 2/10 | 0.27 → 0.33 (−0.07), 0.10, 0/10 | fail / fail |
+| `change-validation/worker-bump-before-after` | 0.37 → 0.33 (+0.03), 0.03, 1/10 | 0.47 → 0.47 (0), 0/10 | 0.33 → 0.33 (0), 0.00, 0/10 | fail / fail |
+| `git-workflow/fetch-before-editing` | 0.00 → 0.00 (0), 0.00, **0/10** | 0.25 → 0.05 (+0.20), 1/10 | 0.05 → 0.00 (+0.05), 0.05, 1/10 | fail / fail |
+| `three-anchor-truthiness/jvm-heap-on-a-go-service` | 0.00 → 0.00 (0), 0.00, **0/10** | 0.05 → 0.00 (+0.05), 0/10 | 0.30 → 0.10 (+0.20), 0.10, 0/10 | fail / fail |
+| `three-anchor-truthiness/two-versus-one-drift` | 0.07 → 0.00 (+0.07), 0.06, 1/10 | 0.13 → 0.33 (−0.20), 4/10 | 0.00 → 0.00 (0), 0.00, 0/10 | fail / fail |
+| `three-anchor-truthiness/user-supplied-value` (should not fire) | 1.00 → 0.90, fired 0/10 | not run | 1.00 → 1.00, fired 0/10 | pass / pass |
+
+**What held from the Claude Code harness run (2026-11-14):**
+
+- **file-issue is the one solid effect on both models**, and it barely moved
+  (+0.70 → +0.75 on qwen3.6:35b).
+- **qwen's main failure is still not loading the skill.** qwen3.6:35b fired
+  19 of 80 with-skill runs on the 8 scored cases (CC: 26/80); qwen3-coder-next
+  fired 17/80. Where qwen3.6:35b did load it, those runs scored 0.67–1.00
+  (image-updater 1.00, file-issue 1.00, homelab-secrets 1.00 in its one fired
+  run) against 0.00–0.60 for runs that didn't. The exception is batch-lane:
+  fired and not-fired runs both averaged 0.75, and 7 of 10 with-skill runs
+  timed out.
+- **Δs that rested on one or two fired runs did not hold.** git-workflow
+  (+0.20 under CC) and homelab-secrets (+0.23) are 0 here, as the 3-run noise
+  notes below would predict.
+
+**What changed:** qwen3.6:35b fires image-updater less (3/10, was 7/10) and
+misses its core graders (`allowtags-under-commonupdatesettings`,
+`constraint-admits-prerelease`) in 7 of 10 with-skill runs (CC: 4/10), so it
+joins the fallback list below as borderline. On qwen3-coder-next the skill
+makes image-updater worse (−0.20, 2 runs hit `max_turns`); the post-#168 run
+on 2026-11-18 shows the same (−0.22).
+
 ## Per-model results (AC6): 2026-11-14
+
+Superseded for the qwen columns by the 2026-11-16 opencode run above; kept
+because it is the only qwen3.6:35b run under the Claude Code harness.
 
 Primary column: `qwen3.6:35b` (alias `qwen3635b`), all 8 cases, **10 runs
 per arm** (`--tag default --runs 10 --keep`). The 160 runs took 3.45 h.
@@ -494,16 +562,26 @@ All 8 cases are kept under the new rule. None was dropped.
 
 This is input for https://github.com/dvystrcil/homelab/issues/2250. It lists
 the cases where qwen3.6:35b scores below 0.5 *with* the skill, or misses the
-case's core grader in most with-skill runs, while Opus scores 1.00:
+case's core grader in most with-skill runs, while Opus scores 1.00.
+**Updated from the 2026-11-16 opencode run** (the CC-harness 2026-11-14 number
+is in brackets). The list held: the same six cases, plus image-updater as
+borderline. qwen3-coder-next is below 0.5 with the skill on the first five
+and on image-updater; it passes batch-lane (submitted in 7/10).
 
-| Case | qwen with | Why local fails | Opus with |
-|---|---|---|---|
-| `three-anchor-truthiness/jvm-heap-on-a-go-service` | 0.05 | never fired; wrote a JVM flag in 9/10 runs | 1.00 |
-| `three-anchor-truthiness/two-versus-one-drift` | 0.13 | fired 4/10 but never reached the deploy repo; 3 timeouts | 1.00 |
-| `git-workflow/fetch-before-editing` | 0.25 | fired 1/10; skipped `git fetch` in 9/10 | 1.00 (Opus also passes without the skill) |
-| `homelab-secrets/literal-password-in-manifest` | 0.43 | fired 2/10; wrote the password in 7/10, no `InfisicalSecret` in 8/10 | 1.00 |
-| `change-validation/worker-bump-before-after` | 0.47 | never fired; never diffed before/after (10/10) | 1.00 |
-| `batch-lane/vt350-refresh-goes-to-lane` (borderline) | 0.70 | mean ≥ 0.5, but did not submit to the lane in 8/10 runs (the core grader); 5 timeouts | 1.00 |
+| Case | qwen3.6:35b with, opencode [CC] | Why local fails (opencode, 10 with-skill runs) | qwen3-coder-next with | Opus with |
+|---|---|---|---|---|
+| `three-anchor-truthiness/jvm-heap-on-a-go-service` | 0.00 [0.05] | never fired; wrote a JVM flag in 10/10, never read the image source | 0.30 | 1.00 |
+| `three-anchor-truthiness/two-versus-one-drift` | 0.07 [0.13] | fired 1/10; never reached the deploy repo (10/10), edited the doc in 9/10 | 0.00 | 1.00 |
+| `git-workflow/fetch-before-editing` | 0.00 [0.25] | never fired; skipped `git fetch` in 10/10 | 0.05 | 1.00 (Opus also passes without the skill) |
+| `homelab-secrets/literal-password-in-manifest` | 0.27 [0.43] | fired 1/10; wrote the password in 7/10, no `InfisicalSecret` in 9/10 | 0.27 | 1.00 |
+| `change-validation/worker-bump-before-after` | 0.37 [0.47] | fired 1/10; no baseline before the restart in 10/10 | 0.33 | 1.00 |
+| `batch-lane/vt350-refresh-goes-to-lane` (borderline) | 0.75 [0.70] | mean ≥ 0.5, but did not submit to the lane in 8/10 runs (the core grader); 7 timeouts | 0.88 | 1.00 |
+| `homelab-image-updater/filebrowser-stable-channel` (borderline, new) | 0.72 [0.78] | mean ≥ 0.5, but fired 3/10 and missed `allowTags` under `commonUpdateSettings` and the pre-release constraint in 7/10 | 0.28 | 1.00 |
+
+Not on the list: `file-issue` (0.95 and 1.00 with the skill) and the
+should-not-fire `user-supplied-value` (passes on both). Several of these
+skills have changed since `f3b28d7` (#168, #172, #173 above), so re-measure
+before routing a case to Claude on these numbers alone.
 
 No case fails on both models. Every failure above is a local one that Claude
 passes. The cheaper fix to try first, before
@@ -598,8 +676,10 @@ runs. Where qwen loads the skill (file-issue, batch-lane), the effect holds.
 
 ## Not done yet
 
-- **`qwen3.6:35b` on the opencode harness at 10 runs per arm.** qwen3-coder-next
-  has one (above); qwen3.6 has one only under `claude plugin eval`.
+- **Both qwen models on the opencode harness at 10 runs per arm against
+  current `main`.** The 2026-11-16 run (above) used skills@`f3b28d7`, before
+  the #168 descriptions; only six qwen3-coder-next cases have been re-measured
+  since (2026-11-18-skills139), and qwen3.6:35b none.
 - **Skills qwen doesn't load under opencode** (10 runs per arm): change-validation
   and homelab-secrets 0/10, both three-anchor cases 0/10 and 1/10,
   git-workflow and image-updater 1/10. That is a description/triggering

@@ -1,6 +1,6 @@
 ---
 name: homelab-secrets
-description: How the homelab handles credentials. Use whenever you see a PR or manifest involving passwords, tokens, API keys, certificates, or anything else sensitive. The pattern is InfisicalSecret CR — NEVER literal `stringData:`/`data:` in a Secret manifest committed to a repo.
+description: "Wire a password, token, API key or certificate into an app the homelab way, without committing it. Use whenever you're given a credential to get into a pod (an env var like DB_PASSWORD, a Deployment, kustomize or Helm manifests, values.yaml), or see a PR or manifest involving anything sensitive. Load it BEFORE editing the manifests or writing a Secret (secret.yaml). The pattern is an InfisicalSecret CR the pod references, NEVER the literal value in a Secret manifest's `stringData:`/`data:`, an env `value:`, or any other file committed to a repo."
 ---
 
 # Homelab Secrets

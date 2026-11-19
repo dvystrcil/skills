@@ -1,6 +1,6 @@
 ---
 name: memory-maintenance
-description: Keep Claude Code's auto-memory index (MEMORY.md) inside the loader's budget — 200 lines / 25,000 characters, measured from the binary — and compact it by archiving, never deleting. Use when the "MEMORY.md is … Only part of it was loaded" warning appears, before adding memories to a nearly-full index, or when asked to audit/compact memory.
+description: Keep Claude Code's auto-memory index (MEMORY.md) inside the loader's budget — 200 lines / 25,000 characters, measured from the binary — and compact it by archiving or merging entries, never deleting. Use when the "MEMORY.md is … Only part of it was loaded" warning appears, before adding memories to a nearly-full index, or when asked to audit/compact memory.
 ---
 
 # memory-maintenance
@@ -109,6 +109,38 @@ It never writes. Exit 0 = clean, 1 = findings, 2 = usage / no `MEMORY.md`.
 
 Never let a tool rewrite the whole index from an LLM's judgment without the
 lossless verify.
+
+## Merge — several overlapping entries into one (homelab#1929)
+
+Archiving takes a lesson out of the index; merging keeps it there in fewer
+lines. A model proposes, a deterministic script applies:
+
+```bash
+B=~/.claude/skills/memory-maintenance/bin
+$B/propose-memory-merges.py --memory-dir "$M" --clusters-only           # no model
+OLLAMA_URL=http://host:11434 $B/propose-memory-merges.py --memory-dir "$M" > /tmp/p.json
+$B/merge-memory-lines.py --memory-dir "$M" --proposal /tmp/p.json --pick 0 --dry-run
+$B/merge-memory-lines.py --memory-dir "$M" --proposal /tmp/p.json --pick 0
+```
+
+- **Propose** never writes. It clusters index entries by rare shared words
+  (link text, hook, file name, `description:`), has a local model
+  (`MEMORY_MERGE_MODEL`) draft one merged file and index line per cluster, and
+  puts each draft through the applier's own `validate()`: one retry, then it
+  is listed under `rejected`. Clusters are word overlap, not meaning: review
+  each one. Exit 0 = proposals, 1 = none, 2 = usage, 3 = model error.
+- **Apply** refuses (exit 2, nothing written) a source with 0 or > 1 index
+  lines or only an archive line, a missing source file, fewer than 2 sources,
+  a name or file already taken, a body that doesn't name every source file,
+  an index line over 150 chars or not `- [name](file.md) — hook`, a new file
+  that fails `check-memory-file.py`, or a schema error. Otherwise it backs up
+  both index files, writes the new file with `merged_from:` in its
+  frontmatter, puts its line where the first source's was, moves the source
+  lines verbatim under `## Merged <date> → [name](file.md)` in the archive,
+  and verifies like the archiver (plus: the new file holds what was written).
+  On failure it restores both files and removes the new one (exit 3). Source
+  topic files stay on disk. `--dry-run` prints the new file and both diffs.
+  Exit codes are the archiver's: 0 / 1 index check still fails / 2 / 3.
 
 ## Format check — one file you just wrote
 

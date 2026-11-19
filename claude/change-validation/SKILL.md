@@ -1,6 +1,6 @@
 ---
 name: change-validation
-description: Validate that a change (upgrade, migration, config bump, refactor of running infra) didn't regress anything by running an IDENTICAL check suite before and after, then diffing the two outputs. Use whenever you're about to change something already in production.
+description: "Validate that a change to something running in production (upgrade, migration, config bump, restart, refactor of running infra) didn't regress anything: run an IDENTICAL check suite before and after, save each output to a file, and diff the two. Use whenever you're asked to change a live service and make sure nothing broke, e.g. bump a setting in its config file (config.env, .env, values.yaml, a ConfigMap) or its image tag, then restart or redeploy it with its control script, systemctl, kubectl or helm. Load it BEFORE the change: the baseline has to be captured first."
 ---
 
 # change-validation

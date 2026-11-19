@@ -1,6 +1,6 @@
 ---
 name: homelab-image-updater
-description: How the homelab uses argocd-image-updater. Use whenever creating, editing, or debugging an ImageUpdater CRD. Covers the two writer types (helm/kustomize), constraint mechanics (semver + allowTags regex), the silent-drop schema gotcha, and a registry of working examples.
+description: "How the homelab uses argocd-image-updater. Use whenever you're asked to write, edit or debug an ImageUpdater CR (an image-updater/<app>-image-updater.yaml manifest in the argocd namespace) or to change which image tags an Argo CD app tracks (a semver line like 1.x, a -stable vs -beta channel). Load it BEFORE writing the file. Covers the two writer types (helm/kustomize), constraint mechanics (semver + allowTags regex), the silent-drop schema gotcha, and a registry of working examples."
 ---
 
 # Homelab Image Updater

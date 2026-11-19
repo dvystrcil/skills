@@ -140,6 +140,13 @@ class AppliesMergeTest(Fixture):
         self.assertEqual(self.index.splitlines(),
                          ["# Memory Index", "", INDEX_LINE, GAMMA, POINTER.format(n=4)])
 
+    def test_index_line_takes_the_first_source_place_not_the_second(self):
+        self.proposals(proposal(sources=["feedback_alpha.md", "feedback_delta.md"],
+                                body=BODY.replace("feedback_beta.md", "beta")))
+        r = self.run_cli()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.index.splitlines()[2:5], [INDEX_LINE, BETA, GAMMA])
+
     def test_source_lines_move_verbatim_under_merged_heading(self):
         self.run_cli()
         self.assertTrue(self.archive.startswith(ARCHIVE))
@@ -283,6 +290,8 @@ class RefusesTest(Fixture):
         self.refuse("feedback_nope.md",
                     sources=["feedback_alpha.md", "feedback_nope.md"],
                     body=BODY + "feedback_nope.md\n")
+        r = self.run_cli()
+        self.assertNotIn("archived only", r.stderr)
 
     def test_source_matches_two_index_lines(self):
         self.write(INDEX.format(pointer=POINTER.format(n=1)).replace(
@@ -358,7 +367,11 @@ class RefusesTest(Fixture):
         self.refuse("name", name="re\ntries")
 
     def test_bracket_in_name(self):
-        self.refuse("name", name="re]tries", index_line="- [re]tries](feedback_retries.md) — x")
+        self.refuse("`name` must be", name="re]tries",
+                    index_line="- [re]tries](feedback_retries.md) — x")
+
+    def test_blank_name(self):
+        self.refuse("`name` must be", name="  ", index_line="- [  ](feedback_retries.md) — x")
 
     def test_unknown_type(self):
         self.refuse("type", type="lesson")
@@ -422,11 +435,27 @@ class RefusesTest(Fixture):
 
     def test_pick_out_of_range(self):
         self.proposals(proposal())
-        self.assertRefused(self.run_cli("--pick", "1"), "--pick")
+        self.assertRefused(self.run_cli("--pick", "1"), "out of range 0..0")
 
     def test_negative_pick(self):
         self.proposals(proposal())
         self.assertRefused(self.run_cli("--pick", "-1"), "--pick")
+
+    def test_two_pointer_lines(self):
+        self.write(INDEX.format(pointer=POINTER.format(n=1)) + POINTER.format(n=1) + "\n",
+                   ARCHIVE)
+        self.before = self.snapshot()
+        self.refuse("pointer lines")
+
+    def test_required_flags(self):
+        for drop in ("--memory-dir", "--proposal"):
+            argv = self.args()
+            i = argv.index(drop)
+            del argv[i:i + 2]
+            r = subprocess.run([sys.executable, str(SCRIPT), *argv],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2, drop)
+            self.assertIn(drop, r.stderr)
 
     def test_proposal_file_missing(self):
         self.assertRefused(self.run_cli(), "proposal")

@@ -14,6 +14,7 @@ shipped script runs as a subprocess against a real HTTP endpoint.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -28,6 +29,10 @@ from pathlib import Path
 BIN = Path(__file__).resolve().parent.parent / "claude" / "memory-maintenance" / "bin"
 SCRIPT = BIN / "propose-memory-merges.py"
 APPLY = BIN / "merge-memory-lines.py"
+
+_spec = importlib.util.spec_from_file_location("propose_memory_merges", SCRIPT)
+mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(mod)
 
 POINTER = ("> {n} more hooks in [MEMORY-ARCHIVE.md](MEMORY-ARCHIVE.md) — files "
            "intact, recalled on relevance, not auto-loaded")
@@ -249,6 +254,24 @@ class ProposeTest(Fixture):
             self.assertIn(f, prompt)
             self.assertIn((self.mem / f).read_text(encoding="utf-8"), prompt)
 
+    def test_request_turns_thinking_off_and_numbers_clusters_from_1(self):
+        m = self.fake(draft())
+        r = self.run_cli()
+        self.assertIs(m.requests[0]["think"], False)
+        self.assertIn("cluster 1: ", r.stderr)
+
+    def test_size_cap_boundary(self):
+        def pad_to(total):
+            first = self.mem / RETRY[0]
+            rest = sum(len((self.mem / f).read_text(encoding="utf-8")) for f in RETRY[1:])
+            base = topic("retry-backoff", ENTRIES[0][3], "feedback")
+            first.write_text(base + "y" * (total - rest - len(base)), encoding="utf-8")
+        pad_to(mod.MAX_CHARS)
+        self.fake(draft(), draft())
+        self.assertEqual(len(self.out(self.run_cli())["proposals"]), 1)
+        pad_to(mod.MAX_CHARS + 1)
+        self.assertIn("too large", " ".join(self.out(self.run_cli())["rejected"][0]["problems"]))
+
     def test_model_name_from_flag(self):
         m = self.fake(draft())
         self.run_cli("--model", "tiny:1b")
@@ -335,6 +358,78 @@ class ProposeTest(Fixture):
                            capture_output=True, text=True,
                            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
         self.assertEqual(a.returncode, 0, a.stdout + a.stderr)
+
+
+class ClusterUnitTest(unittest.TestCase):
+    """clusters() and candidates() in-process: thresholds at their boundaries."""
+
+    def c(self, *word_sets, min_shared=3, max_size=5):
+        cands = [(f"f{i}.md", "", set(ws.split())) for i, ws in enumerate(word_sets)]
+        return mod.clusters(cands, min_shared, max_size)
+
+    FILL = ["zz%d" % i for i in range(40)]
+
+    def pad(self, *sets):
+        # unrelated entries so that the rare-word limit is max(3, 5%) = 3
+        return list(sets) + [f"{w}x {w}y" for w in self.FILL[:20]]
+
+    def test_words_are_four_chars_or_more_minus_stop_words(self):
+        self.assertEqual(mod.words("Node gpu with CORDON a-b drain_x"),
+                         {"node", "cordon", "drain"})
+
+    def test_adjacent_entries_pair(self):
+        out = self.c(*self.pad("aaaa bbbb cccc", "aaaa bbbb cccc"))
+        self.assertEqual([x["sources"] for x in out], [["f0.md", "f1.md"]])
+
+    def test_exactly_min_shared_words_is_enough(self):
+        self.assertEqual(len(self.c(*self.pad("aaaa bbbb cccc", "aaaa bbbb cccc dddd"),
+                                    min_shared=3)), 1)
+        self.assertEqual(self.c(*self.pad("aaaa bbbb", "aaaa bbbb dddd")), [])
+
+    def test_cli_default_min_shared_is_three(self):
+        root = Path(tempfile.mkdtemp(prefix="propose-unit-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        lines = []
+        for i, words in enumerate(["aaaa bbbb cccc", "aaaa bbbb cccc"]
+                                  + [f"{w}x" for w in self.FILL[:20]]):
+            f = f"user_e{i}.md"
+            (root / f).write_text(f"---\nname: e\ndescription: {words}\n---\n",
+                                  encoding="utf-8")
+            lines.append(f"- [e{i}]({f}) — h")
+        (root / "MEMORY.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, str(SCRIPT), "--memory-dir", str(root),
+                            "--clusters-only"], capture_output=True, text=True,
+                           env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual([c["sources"] for c in json.loads(r.stdout)["clusters"]],
+                         [["user_e0.md", "user_e1.md"]])
+
+    def test_rare_limit_is_at_least_three(self):
+        four = ["aaaa bbbb cccc"] * 4
+        self.assertEqual(self.c(*four), [])                      # df 4 > 3
+        self.assertEqual(len(self.c(*four[:3])[0]["sources"]), 3)  # df 3
+
+    def test_shared_lists_words_in_two_or_more_members(self):
+        out = self.c(*self.pad("aaaa bbbb cccc eeee", "aaaa bbbb cccc ffff",
+                               "aaaa bbbb cccc ffff"))
+        self.assertEqual(out[0]["shared"], ["aaaa", "bbbb", "cccc", "ffff"])
+
+    def test_ties_order_by_first_member(self):
+        out = self.c(*self.pad("aaaa bbbb cccc", "pppp qqqq rrrr", "pppp qqqq rrrr",
+                               "llll", "mmmm", "aaaa bbbb cccc"))
+        self.assertEqual([x["sources"] for x in out],
+                         [["f0.md", "f5.md"], ["f1.md", "f2.md"]])
+
+    def test_candidates_use_hook_after_the_first_dash_and_stem_without_prefix(self):
+        root = Path(tempfile.mkdtemp(prefix="propose-unit-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        (root / "feedback_retry_backoff.md").write_text(
+            "---\nname: n\ndescription: described\n---\n", encoding="utf-8")
+        (root / "MEMORY.md").write_text(
+            "- [linktext](feedback_retry_backoff.md) — hooka — hookb\n", encoding="utf-8")
+        [(f, line, ws)] = mod.candidates(root)
+        self.assertEqual(ws, {"linktext", "hooka", "hookb", "retry", "backoff",
+                              "described"})
 
 
 # ------------------------------------------------------------------ read-only

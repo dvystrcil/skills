@@ -82,6 +82,7 @@ only repetition. Reply with one JSON object:
   (e.g. "Merged from a.md, b.md and c.md."). A feedback or project body needs a
   `**Why:**` line and a `**How to apply:**` line, each with text.
 - index_line: exactly `- [name](file) — hook`, at most {merge.MAX_INDEX_LINE} characters
+  IN TOTAL. Keep the hook under 70 characters: a pointer, not a summary.
 - rationale: one sentence on why these belong together"""
 
 

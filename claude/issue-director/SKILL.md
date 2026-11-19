@@ -113,6 +113,12 @@ approves the shortlist, you review every result, and the owner merges.
   that's pushed survives a lost context.
 - Commit and push at each working step, not only at the end.
 - Run the checks you can run locally (tests, linters, `act`) **before** you push.
+  That includes the repo's own gates, which the director copies into the brief.
+  Two that failed agents' first push on 2026-11-18: homelab's PR-body check needs
+  a `## Reproduced on main` section (the command and its output, or
+  `n/a: <reason>`), and n8n-workflow's coverage gate has a 99% line floor that
+  counts only tests that import the lib directly. A test that runs the copy
+  inlined in a workflow node doesn't count.
 - **Don't wait on CI.** Your job ends when the work is pushed and the draft PR is
   open. Report and finish. Never poll `gh pr checks` or watch a run: the
   director watches CI, and if a check fails it sends the failure back to you to
@@ -155,6 +161,14 @@ approves the shortlist, you review every result, and the owner merges.
   as theirs.
 - Run `gh pr ready` only when the PR is finished and every check is green. The
   owner merges.
+- **Release held n8n nodes yourself, one workflow at a time.** In
+  n8n-workflow, a merged PR that changes a node is HELD by the on-merge sync,
+  which still shows green. Check that the live nodes (`n8n export:workflow --all`
+  in the pod) equal git's pre-merge version, then dispatch `n8n-sync.yaml` with
+  `allow_node_changes=true` and `only="<name>"`. Wait for each dispatch to
+  finish before sending the next. The sync runs one at a time, and a third
+  dispatch cancelled the second on 2026-11-18. Then re-read live and compare it
+  with `main`.
 - Close superseded PRs yourself (`gh pr close` with a comment giving the reason).
 - Keep one status table (issue, agent, PR, CI, state). Show it when something
   changes, not on every notification.

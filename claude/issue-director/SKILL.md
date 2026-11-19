@@ -36,6 +36,15 @@ approves the shortlist, you review every result, and the owner merges.
    agents spent a slot finding out. Search
    `gh pr list -R <owner>/<repo> --state merged --search "<N> in:body"` and read
    the last comments. A done one is yours to verify and close, not an agent's.
+   **Check where the work belongs, not just where the issue is filed.** A
+   model comparison, replay or eval (models × inputs → scores) goes in
+   `dvystrcil/model-testing` as a payload group run by `run_benchmark.py`.
+   Grep its `benchmarks/payloads/` for the role before you brief. On
+   2026-11-19, n8n-workflow#348 was briefed into n8n-workflow and built a
+   second harness (n8n-workflow#398, closed unmerged). model-testing already had
+   a payload for that node. Before moving data from a private repo or issue into
+   another repo, check `gh repo view --json visibility`. model-testing is
+   public, so the re-homed fixtures had to be redacted first (model-testing#174).
 2. Propose up to 10 candidates. Give each one:
    - `repo#num` and a one-line goal
    - a size (S, M or L)
@@ -92,7 +101,13 @@ approves the shortlist, you review every result, and the owner merges.
     `bin/` audit, `audit check denominators` (a `checked=N` completion marker),
     `Self-Test Audit` (a `self_test()` called from `main()`) and
     `lint-pr-test-coverage` (a workflow that runs the new test). Each cost a
-    send-back round trip.
+    send-back round trip. On 2026-11-19 the director skipped this step, and the
+    same two gates failed again on three PRs.
+  - for a body-only fix: after `gh pr edit`, **don't `gh run rerun` the failed
+    body check.** The edit already fires a fresh `edited` run. A re-run replays
+    the old event with the old body, and the workflow's concurrency group
+    cancels the fresh run in its favour. On 2026-11-19 that kept three homelab
+    PRs red after their bodies were fixed.
   - when the work is an audit or a "does X happen?" question, that "no
     finding" is a full answer: comment the evidence and stop, no PR. Three of
     eleven issues in that run (n8n-workflow#361, homelab#2241, and #2327's
@@ -151,6 +166,21 @@ approves the shortlist, you review every result, and the owner merges.
   work (`SendMessage`). It picks up with its context intact.
 - Send fixes back to the agent that did the work (`SendMessage`) rather than
   redoing it yourself.
+- **Release an n8n-workflow PR's held nodes yourself once it merges.** The
+  on-merge sync holds every workflow whose nodes changed. It still shows green;
+  the `HELD` lines are in its log. For each held workflow:
+  1. Compare each changed node's `parameters` in the live
+     `n8n export:workflow --all` with git at the merge commit's parent. Release
+     only if they're equal, so a live UI edit is never overwritten.
+  2. Check that each new node has no `credentials`. The sync never pushes
+     credential bindings, so a new node that needs one would arrive unbound.
+  3. Dispatch `n8n-sync.yaml` with `allow_node_changes=true` and
+     `only="<exact name>"`.
+  4. Re-read live and confirm it equals git at the merge commit, and that
+     `active` didn't change.
+
+  Post that evidence on the issue. All three of this run's n8n-workflow PRs
+  (#396, #397, #399) went through these steps.
 - Pass blocking questions on to the owner in short form, with the issue named.
   Before you recommend an option, check it against live data. On 2026-11-18 the
   director recommended reading a GitHub field (`closedByPullRequestsReferences`)

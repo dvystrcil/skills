@@ -7,14 +7,45 @@ description: "How the homelab uses argocd-image-updater. Use whenever you're ask
 
 The homelab uses [argocd-image-updater](https://github.com/argoproj-labs/argocd-image-updater) with **CRD-based config** (not the legacy annotation-based config on Argo Applications). Every CRD lives under `dvystrcil/argocd-image-updater/<app>/<app>-image-updater.yaml` and gets applied into the `argocd` namespace by the `app-of-updates` Argo Application.
 
-If you're about to write or edit one, **find a working example in the cluster first**:
+## Writing a new CR: start here
 
-```bash
-kubectl -n argocd get imageupdater                                # list all
-kubectl -n argocd get imageupdater <similar-app>-iu -o yaml       # copy structure from
+**Write the file in one step from the template below.** Everything the CR needs is in the request (Argo app name, git repo, overlay path, image, tag line) plus this skill. You do not need the app's files, the overlay directory or the cluster: `writeBackTarget: "kustomization:/overlays"` is a path inside the app's **GitHub repo**, which the controller clones itself. It is not a local directory, so don't search the workspace for it.
+
+Kustomize app tracking one release channel (the real `filebrowser-iu`: 1.x line, `-stable` tags only, never `-beta`):
+
+```yaml
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: filebrowser-iu
+  namespace: argocd                       # the namespace goes HERE, never under spec
+spec:
+  applicationRefs:
+    - namePattern: "filebrowser"          # the Argo Application's name
+      images:
+        - alias: "filebrowser"
+          imageName: "ghcr.io/gtsteffaniak/filebrowser:1.x-0"   # 1.x-0, not 1.x or 1.x-stable
+          commonUpdateSettings:           # allowTags/updateStrategy go ONLY here
+            updateStrategy: "semver"
+            allowTags: 'regexp:^1\.\d+\.\d+-stable$'
+      writeBackConfig:
+        method: "git"
+        gitConfig:
+          repository: "https://github.com/dvystrcil/filebrowser.git"
+          branch: "main"
+          writeBackTarget: "kustomization:/overlays"
 ```
 
-That five-second lookup would have prevented all three of today's (2026-05-18) regressions in the filebrowser-iu rollout.
+Four rules. Each one broke a live CR (details further down):
+
+1. `allowTags`, `updateStrategy`, `ignoreTags`, `pullSecret`, `platforms` and `forceUpdate` go under `commonUpdateSettings`. Directly on the `images[]` item they are silently dropped.
+2. A channel suffix (`-stable`, `-beta`) is a semver pre-release. Pick the channel with an `allowTags` regex and write the constraint as `<major>.x-0`: plain `1.x` rejects every pre-release tag, and `1.x-stable` filters nothing.
+3. There is no `spec.namespace`. Use `metadata.namespace: argocd`.
+4. Kustomize app: no `manifestTargets`. Helm app: `manifestTargets.helm` plus `writeBackTarget: "helmvalues:./values.yaml"` (template below).
+
+With no channel, drop `allowTags` and use a plain constraint (`1.x`, or `v1.x` if the vendor tags with `v`).
+
+**Editing or debugging a live CR, with a shell and cluster access:** start from a working one, `kubectl -n argocd get imageupdater <similar-app>-iu -o yaml`. That lookup would have prevented all three of the 2026-05-18 regressions in the filebrowser-iu rollout.
 
 ## The two writer types
 
@@ -102,7 +133,7 @@ For **vendor images** there is no convention to assume — match the actual tag 
 | ghcr.io/mealie-recipes/mealie | `v3.19.0` (v prefix) | regex `^v3\.[0-9]+\.[0-9]+$` |
 | ghcr.io/some-other | depends | check Docker Hub / ghcr first |
 
-**Verification commands when in doubt:**
+**Verification commands when in doubt** (need a shell; when you have none, follow the tag format the request gives you):
 
 ```bash
 # Docker Hub
@@ -298,7 +329,7 @@ When image-updater isn't doing what you expect:
 
 ## When the AI should invoke this skill
 
-- Creating a new ImageUpdater CRD (look for an existing similar one first)
+- Creating a new ImageUpdater CRD (start from the template at the top)
 - Editing an existing CRD's constraint, strategy, or write-back target
 - Debugging "image-updater isn't bumping my app" or "it bumped to the wrong tag"
 - Reviewing a PR that adds/modifies a file under `dvystrcil/argocd-image-updater/`

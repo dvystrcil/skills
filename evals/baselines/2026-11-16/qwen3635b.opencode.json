@@ -1,0 +1,555 @@
+{
+ "model": "qwen3635b",
+ "harness": "opencode",
+ "cases": [
+  {
+   "skill": "batch-lane",
+   "case": "vt350-refresh-goes-to-lane",
+   "with": [
+    1.0,
+    1.0,
+    0.5,
+    0.5,
+    0.75,
+    0.75,
+    0.75,
+    0.75,
+    0.75,
+    0.75
+   ],
+   "without": [
+    0.75,
+    0.75,
+    0.75,
+    0.75,
+    0.75,
+    0.75,
+    0.75,
+    0.5,
+    0.5,
+    0.5
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 1
+   },
+   "timed_out": {
+    "with": 7,
+    "without": 6
+   },
+   "errors": [],
+   "cost_usd": null,
+   "fired": [
+    true,
+    false,
+    false,
+    true,
+    false,
+    true,
+    true,
+    false,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "submitted-to-lane": 8,
+     "no-local-freecad": 2
+    },
+    "without": {
+     "submitted-to-lane": 10,
+     "no-local-freecad": 3
+    }
+   },
+   "should_not_fire": false
+  },
+  {
+   "skill": "change-validation",
+   "case": "worker-bump-before-after",
+   "with": [
+    0.3333333333333333,
+    0.3333333333333333,
+    0.6666666666666666,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333
+   ],
+   "without": [
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": null,
+   "fired": [
+    false,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "baseline-saved-before-restart": 10,
+     "outputs-diffed": 9
+    },
+    "without": {
+     "baseline-saved-before-restart": 10,
+     "outputs-diffed": 10
+    }
+   },
+   "should_not_fire": false
+  },
+  {
+   "skill": "file-issue",
+   "case": "follow-up-goes-to-draft-issue",
+   "with": [
+    1.0,
+    0.5,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "without": [
+    0.0,
+    0.5,
+    0.0,
+    0.0,
+    0.5,
+    0.0,
+    0.0,
+    0.5,
+    0.5,
+    0.0
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": null,
+   "fired": [
+    true,
+    false,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "failed_graders": {
+    "with": {
+     "handed-to-draft-issue": 1
+    },
+    "without": {
+     "handed-to-draft-issue": 10,
+     "no-bare-gh-issue-create": 6
+    }
+   },
+   "should_not_fire": false
+  },
+  {
+   "skill": "git-workflow",
+   "case": "fetch-before-editing",
+   "with": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "without": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": null,
+   "fired": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "fetched": 10,
+     "no-duplicate-fix-commit": 10
+    },
+    "without": {
+     "fetched": 10,
+     "no-duplicate-fix-commit": 10
+    }
+   },
+   "should_not_fire": false
+  },
+  {
+   "skill": "homelab-image-updater",
+   "case": "filebrowser-stable-channel",
+   "with": [
+    1.0,
+    1.0,
+    0.6,
+    1.0,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6
+   ],
+   "without": [
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 1
+   },
+   "errors": [],
+   "cost_usd": null,
+   "fired": [
+    true,
+    true,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "allowtags-under-commonupdatesettings": 7,
+     "constraint-admits-prerelease": 7
+    },
+    "without": {
+     "allowtags-under-commonupdatesettings": 10,
+     "constraint-admits-prerelease": 10
+    }
+   },
+   "should_not_fire": false
+  },
+  {
+   "skill": "homelab-secrets",
+   "case": "literal-password-in-manifest",
+   "with": [
+    0.0,
+    0.3333333333333333,
+    0.0,
+    1.0,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.0,
+    0.0
+   ],
+   "without": [
+    0.3333333333333333,
+    0.3333333333333333,
+    0.0,
+    0.0,
+    0.3333333333333333,
+    0.3333333333333333,
+    0.6666666666666666,
+    0.3333333333333333,
+    0.0,
+    0.3333333333333333
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": null,
+   "fired": [
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "value-never-written": 7,
+     "deployment-has-no-literal": 6,
+     "uses-infisicalsecret": 9
+    },
+    "without": {
+     "value-never-written": 8,
+     "uses-infisicalsecret": 10,
+     "deployment-has-no-literal": 4
+    }
+   },
+   "should_not_fire": false
+  },
+  {
+   "skill": "three-anchor-truthiness",
+   "case": "jvm-heap-on-a-go-service",
+   "with": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "without": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": null,
+   "fired": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "no-xmx-written": 10,
+     "read-the-image-source": 10
+    },
+    "without": {
+     "no-xmx-written": 10,
+     "read-the-image-source": 10
+    }
+   },
+   "should_not_fire": false
+  },
+  {
+   "skill": "three-anchor-truthiness",
+   "case": "two-versus-one-drift",
+   "with": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.6666666666666666,
+    0.0,
+    0.0
+   ],
+   "without": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 0
+   },
+   "errors": [],
+   "cost_usd": null,
+   "fired": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {
+     "consulted-deploy-repo": 10,
+     "doc-not-changed-to-live": 9,
+     "no-edit-to-doc": 9
+    },
+    "without": {
+     "consulted-deploy-repo": 10,
+     "doc-not-changed-to-live": 10,
+     "no-edit-to-doc": 10
+    }
+   },
+   "should_not_fire": false
+  },
+  {
+   "skill": "three-anchor-truthiness",
+   "case": "user-supplied-value",
+   "with": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "without": [
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "turn_capped": {
+    "with": 0,
+    "without": 0
+   },
+   "timed_out": {
+    "with": 0,
+    "without": 1
+   },
+   "errors": [],
+   "cost_usd": null,
+   "fired": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_graders": {
+    "with": {},
+    "without": {
+     "config-changed": 1,
+     "doc-changed": 1
+    }
+   },
+   "should_not_fire": true
+  }
+ ]
+}

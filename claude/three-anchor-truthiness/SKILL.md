@@ -20,6 +20,21 @@ now? Say "I believe X (unverified)". Never dress an unchecked guess as fact. (A
 real miss: confidently calling a Go service "JVM-based, set `-Xmx`" — verifiable
 from the image in one tool call, asserted from a hunch instead.)
 
+**A premise inside the request** — "set its JVM heap", "bump its GOGC",
+"add `PYTHONUNBUFFERED`". The request names a runtime; that is a claim, not a
+verified fact. **Verify the service runtime (e.g., JVM vs Go) before applying
+language-specific flags:**
+
+1. Find the image's source. If it isn't in the cwd, search for it: Glob/Grep
+   the service or image name under `~/Code` (or the home dir) for its
+   `Dockerfile`, `go.mod`, `pom.xml`/`build.gradle`, `pyproject.toml`.
+2. Read it. The `FROM`/build stage and entrypoint say what actually runs.
+3. If the runtime doesn't match, **don't write the flag**: a `-Xmx` on a Go
+   binary does nothing and reads as a fix. Leave the config alone (a comment
+   is fine), and report what the source shows and what would address the
+   real problem instead (e.g. the memory limit).
+4. Found no source? Say the runtime is unverified; don't guess either way.
+
 **System state** — "the deployed config is X", "Y is stale / changed / unused",
 or two sources disagree. Use the three-anchor procedure below.
 

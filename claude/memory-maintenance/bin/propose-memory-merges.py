@@ -55,9 +55,10 @@ EXIT_FOUND, EXIT_NONE, EXIT_USAGE, EXIT_MODEL = 0, 1, 2, 3
 MAX_CHARS = 24000
 WORD = re.compile(r"[a-z0-9]+")
 STOP = frozenset("""
-about after also always been before being does dont each every from have here
-into just more most must need needs never only over some such than that them
-then there they this were what when which with your
+about after again already also always because been before being could does done
+dont each even every exact from have here into just more most must need needs
+never only other over should since some still such than that them then there
+they this were what when which while with would your
 """.split())
 DRAFT_KEYS = set(merge.REQUIRED) - {"sources"} | set(merge.OPTIONAL)
 SCHEMA = {

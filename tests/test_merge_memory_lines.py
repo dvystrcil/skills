@@ -189,7 +189,7 @@ class AppliesMergeTest(Fixture):
         r = self.run_cli()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.archive.splitlines()[-3:], [
-            "## Merged 2026-11-04 → [all](feedback_all.md)", GAMMA, INDEX_LINE])
+            "## Merged 2026-11-04 → [all](feedback_all.md)", INDEX_LINE, GAMMA])
         self.assertEqual(self.index.splitlines(),
                          ["# Memory Index", "", "- [all](feedback_all.md) — everything",
                           POINTER.format(n=6)])
@@ -248,7 +248,7 @@ class DryRunTest(Fixture):
         self.assertEqual(self.snapshot(), before)
         self.assertFalse(self.backups.exists())
         out = r.stdout.splitlines()
-        self.assertIn("  - feedback_beta.md", out)          # new file, frontmatter
+        self.assertIn("    - feedback_beta.md", out)        # new file, frontmatter
         self.assertIn("+" + INDEX_LINE, out)                # index line added
         for line in (ALPHA, BETA, DELTA):
             self.assertIn("-" + line, out)                  # removed from the index

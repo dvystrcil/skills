@@ -1,6 +1,6 @@
 ---
 name: git-workflow
-description: Strict GitOps workflow for every repo change — branch, rebase, test, push branch, open a PR. NEVER commit or push to main directly; never merge your own PR. Load BEFORE any git commit, push, or PR operation.
+description: "Strict GitOps workflow for every repo change. Use whenever you're asked to fix something in a repo and commit it, even a one-line fix to a README, doc or config: fetch origin first (the fix may already be upstream), branch, rebase, test, push branch, open a PR. NEVER commit or push to main directly; never merge your own PR. Load it BEFORE editing a file you will commit, and before any git commit, push, or PR operation."
 ---
 
 # Git Workflow

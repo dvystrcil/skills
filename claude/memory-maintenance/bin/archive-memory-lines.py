@@ -102,10 +102,8 @@ def find_matches(index_lines: list[str], names: list[str]) -> list[str]:
     return picked
 
 
-def build(old_index: str, old_archive: str | None, moved: list[str],
-          heading: str) -> tuple[str, str]:
-    idx = [l for l in lines_of(old_index) if l not in moved]
-
+def append_section(old_archive: str | None, heading: str, moved: list[str]) -> str:
+    """The archive with `moved` appended under `heading` (made if absent)."""
     arc = lines_of(old_archive) if old_archive is not None else [ARCHIVE_HEADER]
     if heading in arc:
         start = arc.index(heading)
@@ -118,8 +116,12 @@ def build(old_index: str, old_archive: str | None, moved: list[str],
         if arc and arc[-1].strip() != "":
             arc.append("")
         arc += [heading, *moved]
-    new_archive = join(arc)
+    return join(arc)
 
+
+def set_pointer(idx: list[str], new_archive: str) -> str:
+    """The index with its `> N more hooks` pointer recounted (appended if absent)."""
+    idx = list(idx)
     ptr = [i for i, l in enumerate(idx) if POINTER.match(l)]
     if len(ptr) > 1:
         raise Refused(f"{len(ptr)} '> N more hooks' pointer lines in {INDEX}, expected ≤ 1")
@@ -131,7 +133,14 @@ def build(old_index: str, old_archive: str | None, moved: list[str],
         idx.append(f"> {count}{POINTER_DEFAULT}")
         # the new pointer line adds MEMORY-ARCHIVE.md to the index's links,
         # which is not in the archive, so the count is unchanged.
-    return join(idx), new_archive
+    return join(idx)
+
+
+def build(old_index: str, old_archive: str | None, moved: list[str],
+          heading: str) -> tuple[str, str]:
+    new_archive = append_section(old_archive, heading, moved)
+    idx = [l for l in lines_of(old_index) if l not in moved]
+    return set_pointer(idx, new_archive), new_archive
 
 
 def verify(old_index: str, old_archive: str | None, new_index: str, new_archive: str,
@@ -167,6 +176,30 @@ def write_atomic(path: Path, text: str):
     os.replace(tmp, path)
 
 
+def check_backup_root(broot: Path, mem: Path):
+    if broot == mem or mem in broot.parents:
+        raise Refused(f"backup dir {broot} is inside the memory dir {mem}")
+
+
+def backup(broot: Path, mem: Path, names: tuple[str, ...] = (INDEX, ARCHIVE)) -> Path:
+    """Copy each existing `names` file to a fresh timestamped dir under broot."""
+    snap = broot / dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    snap.mkdir(parents=True)
+    for n in names:
+        if (mem / n).is_file():
+            shutil.copy2(mem / n, snap / n)
+    return snap
+
+
+def restore(snap: Path, mem: Path, names: tuple[str, ...] = (INDEX, ARCHIVE)):
+    """Put each backed-up file back; remove one that had no backup (it was new)."""
+    for n in names:
+        if (snap / n).is_file():
+            shutil.copy2(snap / n, mem / n)
+        else:
+            (mem / n).unlink(missing_ok=True)
+
+
 def default_backup_root() -> Path:
     state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
     return Path(state) / "claude-memory" / "archive-backups"
@@ -190,8 +223,7 @@ def main(argv: list[str] | None = None, after_write=None) -> int:
         if not ip.is_file():
             raise Refused(f"{ip} not found")
         broot = a.backup_dir.resolve()
-        if broot == mem or mem in broot.parents:
-            raise Refused(f"backup dir {broot} is inside the memory dir {mem}")
+        check_backup_root(broot, mem)
         old_index = ip.read_text(encoding="utf-8")
         old_archive = apath.read_text(encoding="utf-8") if apath.is_file() else None
         moved = find_matches(lines_of(old_index), a.names)
@@ -207,11 +239,7 @@ def main(argv: list[str] | None = None, after_write=None) -> int:
         print("dry run: nothing written")
         return EXIT_OK
 
-    snap = broot / dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    snap.mkdir(parents=True)
-    shutil.copy2(ip, snap / INDEX)
-    if old_archive is not None:
-        shutil.copy2(apath, snap / ARCHIVE)
+    snap = backup(broot, mem)
     print(f"backup: {snap}")
 
     # Archive first: a crash between the two writes duplicates, never loses.
@@ -224,11 +252,7 @@ def main(argv: list[str] | None = None, after_write=None) -> int:
                       ip.read_text(encoding="utf-8"), apath.read_text(encoding="utf-8"),
                       mem, moved)
     if problems:
-        shutil.copy2(snap / INDEX, ip)
-        if old_archive is not None:
-            shutil.copy2(snap / ARCHIVE, apath)
-        else:
-            apath.unlink(missing_ok=True)
+        restore(snap, mem)
         print("VERIFY FAILED — both files restored from backup:", file=sys.stderr)
         for p in problems:
             print(f"  - {p}", file=sys.stderr)

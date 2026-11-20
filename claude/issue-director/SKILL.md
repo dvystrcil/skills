@@ -168,6 +168,23 @@ approves the shortlist, you review every result, and the owner merges.
 ## Phase 3: direct
 
 - As each result arrives, review the diff (`/code-review`).
+- **Before you roll a proven pattern out to more repos, check what the artifact
+  carries out of the build**, not just whether the build did the right thing.
+  On 2026-11-19 (homelab#1981) the apt snapshot pin was proven in-cluster and
+  copied to 5 image repos. Every image shipped the CI-only cache URL in its apt
+  sources, so runtime `apt-get` would have used the CI cache, and outside the
+  cluster it wouldn't resolve. Every test checked the build's fetches, none
+  checked the final image. The open-terminal agent caught it only because its
+  image runs apt at runtime and the template's (mealie) never did. Two rules
+  follow:
+  - A build-time setting needs a **final-artifact assertion** in its test
+    (here: the shipped image's sources have no cache or snapshot line).
+  - A "copy this template exactly" brief also asks the agent to report how this
+    repo's *use* differs from the template's. That difference is where the
+    template's own flaw shows up.
+  When one agent's report exposes a flaw shared by the others, send the fix to
+  every agent still running, put already-ready PRs back to draft
+  (`gh pr ready --undo`), and open a follow-up for anything already merged.
 - **Watch CI yourself, without polling.** Run the bundled script in a background
   shell. Pass it one PR or several:
 

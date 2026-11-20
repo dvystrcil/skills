@@ -97,6 +97,15 @@ approves the shortlist, you review every result, and the owner merges.
     finding" is a full answer: comment the evidence and stop, no PR. Three of
     eleven issues in that run (n8n-workflow#361, homelab#2241, and #2327's
     zero removal candidates) ended that way
+  - **its own scratch directory** (`<scratchpad>/<repo>-<issue>/`) for PR bodies
+    and temp files, never the shared scratchpad root. Agents spawned from one
+    session share that scratchpad. On 2026-11-19 one agent's `pr-body.md` was
+    overwritten by another agent's text, and n8n-workflow#393 briefly carried
+    the wrong description. Generic names like `pr-body.md` collide; a per-agent
+    folder can't.
+  - any new endpoint reachable from the internet needs auth, named in the
+    brief. On 2026-11-19 an agent added an unauthenticated n8n webhook (its
+    path skips Cloudflare Access), and it had to be sent back for header auth.
   - what to report at the end
 
 ### Rules every agent follows
@@ -141,7 +150,10 @@ approves the shortlist, you review every result, and the owner merges.
   it prints every row and a `== OWNER/REPO#N rc=<code> PASS|FAIL|PENDING`
   verdict line, and exits 0
   only if every PR passed. It costs nothing while it waits, and you're notified
-  when it exits.
+  when it exits. If it exits with "no checks reported" for a PR you just marked
+  ready or pushed to, run it once more before you report a failure. On
+  2026-11-19 n8n-workflow#393 got that verdict while its runs were still being
+  created, and the second run passed.
 - Don't write your own wait loop around `gh pr checks`. Piping it into
   `wc`/`tail`/`grep` trips the pr-checks-pipe-guard hook, which costs the owner a
   prompt, and can hide failing rows. Don't leave CI to the agents either: an
@@ -161,6 +173,12 @@ approves the shortlist, you review every result, and the owner merges.
   as theirs.
 - Run `gh pr ready` only when the PR is finished and every check is green. The
   owner merges.
+- **When the owner hands you their approvals** ("work through any approvals,
+  leave the PRs for me"), make the agents' judgment calls yourself, then write
+  each decision and its reason into the issue body or a comment. That way the
+  owner can reverse it from the issue in the morning. Still never merge, and
+  still leave deliberate outages (for example a scale-to-0 alert test) and
+  prod-secret writes to the owner.
 - **Release held n8n nodes yourself, one workflow at a time.** In
   n8n-workflow, a merged PR that changes a node is HELD by the on-merge sync,
   which still shows green. Check that the live nodes (`n8n export:workflow --all`
@@ -193,6 +211,12 @@ approves the shortlist, you review every result, and the owner merges.
     line naming exactly what closes it.
   - A PR that says `Refs #N` or `For #N` doesn't close anything, so this step is
     the only thing that will.
+- **Run each PR's after-merge checks yourself, as soon as it merges.** Green CI
+  proves what CI tests, not that the thing works live. On 2026-11-19 both
+  monitors from homelab#2044 merged green and were broken: the PodMonitor
+  scraped zero targets (promtool tests only rule expressions), and the
+  external probe got Cloudflare's bot challenge from GitHub-hosted runners.
+  Each needed a fix PR (cloudflare#33, homelab#2413).
 - **Check that each merged PR's description matches its diff.** Compare the
   description with `gh pr diff <n> --name-only`. An agent can give a PR the wrong
   description (in the first run, homelab#2383 carried #2384's text). If one is

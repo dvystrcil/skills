@@ -1,6 +1,6 @@
 ---
 name: gpu-batch-image-merge
-description: Tell the owner when a gpu-batch image bump PR (dvystrcil/gpu-batch "deploy: gpu-batch-blender gpu-batch-freecad <ver>", opened by the CI bot because AUTO_DEPLOY is false) is safe to merge — green, and no batch Job or chain step in flight. Use at every status report, before submitting batch-lane work, and when a chain finishes; never merge it yourself.
+description: Tell the owner (only) when a gpu-batch image bump PR (dvystrcil/gpu-batch "deploy: gpu-batch-blender gpu-batch-freecad <ver>", opened by the CI bot because AUTO_DEPLOY is false) is safe to merge — green, and no batch Job or chain step in flight. Use at every status report, before submitting batch-lane work, and when a chain finishes; never merge it yourself.
 script: null
 args: []
 ---
@@ -37,9 +37,10 @@ cluster or GitHub (say so; don't guess). Read-only: it never merges or cancels.
   which of my PRs got merged).
 - When a batch chain I submitted finishes (its GitHub comment lands, or
   `gpu-batch-submit.py status <id>` shows the last step done).
-- **Before submitting new batch-lane work** while a deploy PR is open: if the
-  check is READY, tell the owner first. Submitting closes the window for the
-  chain's whole run, so let them merge first (or say they'd rather wait).
+- Before submitting new batch-lane work while a deploy PR is open: **don't hold
+  work back for it.** Merging can wait (owner, 2026-11-23: "unless you need that
+  image to do work, merging can wait"). Only if the work needs the new image,
+  say so and ask for the merge first.
 
 ## What to tell the owner
 
@@ -47,9 +48,8 @@ cluster or GitHub (say so; don't guess). Read-only: it never merges or cancels.
   and the lane is idle: a good time to merge." Add what the release changes,
   from the gpu-batch-docker release notes
   (`gh release view v<ver> -R dvystrcil/gpu-batch-docker`).
-- **WAIT:** only if they asked, or once when the PR first appears: what's in
-  flight and roughly when it ends (the chain's step timeouts, its last log
-  line). Then say READY when it clears; don't repeat WAIT every turn.
+- **WAIT:** say nothing unless they ask. "All I need to know is when it's OK"
+  (owner): no cancelling Jobs or pausing work to open the window.
 - Several deploy PRs open: the newest supersedes the rest. Say so, and close
   the older ones with a comment pointing at the newest (they're bot PRs for
   the same file).

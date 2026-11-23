@@ -46,9 +46,9 @@ Prerequisites: the TrueNAS media share mounted at `/mnt/nfs/media`, prod
 kubectl rights (they mint the per-run token), and the Infisical login (the
 webhook secret). `--help` on each subcommand lists deadlines and options.
 
-Before submitting: if a gpu-batch `deploy:` image PR is open, run the
-`gpu-batch-image-merge` check first. When it's READY, tell the owner: a
-chain started now keeps the window closed for its whole run.
+An open gpu-batch `deploy:` image PR is no reason to hold work back; the
+`gpu-batch-image-merge` skill says when it's OK to merge. Ask for the merge
+first only if this work needs the new image.
 
 ## After submitting
 

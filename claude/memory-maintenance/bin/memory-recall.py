@@ -23,6 +23,16 @@ matching words of any kind put a block on 18 of 30 prompts, mostly noise.
 Two rare words and the length cap put a block on 6 of 120, and kept 4 of 5
 hand-written prompts that should hit.
 
+A second tier runs after the first and adds what it missed: BM25 over the
+whole topic file (index line and description counted twice, then the body),
+kept only at score >= BODY_MIN_SCORE. It catches a prompt that uses the
+memory's own words rather than its index line. Its gate is a score because
+body text makes every word more common, and the rare-word count then rejects
+nearly everything (1 of 14 targets). Measured 2026-11-23 on the 373-entry
+archive: 8 of 14 hand-written archived targets (first tier alone: 4), and on
+30 stand-in prompts it fired 4 times, every entry relevant. Scores below 17
+were mostly noise. Same length cap; first-tier hits are listed first.
+
 Skipped: entries whose file is also linked from MEMORY.md (already loaded),
 lines whose file is gone, and duplicate lines for one file.
 
@@ -41,6 +51,7 @@ import json
 import math
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,6 +64,8 @@ RARE_FRACTION = 0.01  # rare = in at most this share of entries...
 RARE_MIN_DF = 3       # ...or in at most this many, whichever is larger
 MAX_PROMPT_WORDS = 40 # longer prompts (pastes, continuation summaries) are skipped
 LIMIT = 3
+BODY_MIN_SCORE = 17.0  # second tier: whole-file BM25 score a hit must reach
+BM25_K1, BM25_B = 1.2, 0.75
 STOP = frozenset("""
 the and for are but not you all any can had her was one our out has have him his how its may new now
 old see two way who did get got let put say she too use with that this from they will would there their
@@ -72,16 +85,20 @@ class Hit:
     score: float
 
 
-def words(text: str) -> set[str]:
-    out = set()
+def tokens(text: str) -> list[str]:
+    out = []
     for w in WORD.findall(text.lower()):
         w = w.strip(".+#-")
         if len(w) < MIN_LEN or w in STOP or w.isdigit():
             continue
         if len(w) > 4 and w.endswith("s") and not w.endswith("ss"):
             w = w[:-1]
-        out.add(w)
+        out.append(w)
     return out
+
+
+def words(text: str) -> set[str]:
+    return set(tokens(text))
 
 
 def description(path: Path) -> str:
@@ -96,7 +113,19 @@ def description(path: Path) -> str:
     return m.group(1) if m else ""
 
 
-def entries(mem: Path) -> list[tuple[str, str, str, set[str]]]:
+def body(path: Path) -> str:
+    """The topic file after its frontmatter."""
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return ""
+    if text.startswith("---"):
+        parts = text.split("\n---", 1)
+        text = parts[1] if len(parts) > 1 else ""
+    return text
+
+
+def entries(mem: Path) -> list[tuple[str, str, str, set[str], Counter]]:
     archive = mem / "MEMORY-ARCHIVE.md"
     if not archive.is_file():
         return []
@@ -112,8 +141,10 @@ def entries(mem: Path) -> list[tuple[str, str, str, set[str]]]:
         if f in seen or f in loaded or not (mem / f).is_file():
             continue
         seen.add(f)
-        text = " ".join((m.group("name"), m.group("hook"), description(mem / f)))
-        out.append((f, m.group("name"), m.group("hook"), words(text)))
+        head = tokens(" ".join((m.group("name"), m.group("hook"), description(mem / f))))
+        # The second tier's document: the head counts twice, like a title field.
+        doc = Counter(head * 2 + tokens(body(mem / f)))
+        out.append((f, m.group("name"), m.group("hook"), set(head), doc))
     return out
 
 
@@ -123,7 +154,7 @@ def recall(mem: Path, prompt: str, limit: int = LIMIT) -> list[Hit]:
         return []
     n = len(ents)
     df: dict[str, int] = {}
-    for *_, ws in ents:
+    for _, _, _, ws, _ in ents:
         for w in ws:
             df[w] = df.get(w, 0) + 1
     q = words(prompt)
@@ -131,14 +162,40 @@ def recall(mem: Path, prompt: str, limit: int = LIMIT) -> list[Hit]:
         return []
     rare = max(RARE_MIN_DF, math.ceil(n * RARE_FRACTION))
     hits = []
-    for f, name, hook, ws in ents:
+    for f, name, hook, ws, _ in ents:
         common = q & ws
         if sum(1 for w in common if df[w] <= rare) < MIN_RARE:
             continue
         score = sum(math.log(1 + n / df[w]) for w in common)
         hits.append(Hit(f, mem / f, name, hook, score))
     hits.sort(key=lambda h: (-h.score, h.file))
-    return hits[:limit]
+    # Second tier, after the first: BM25 over the whole file, kept only above
+    # a high score. It finds prompts that use a memory's own words rather than
+    # its index line. Its gate is a score, not the rare-word count: body text
+    # makes every word more common, and that count then rejects nearly all.
+    first = {h.file for h in hits}
+    body_hits = [h for h in bm25(mem, ents, q) if h.file not in first and h.score >= BODY_MIN_SCORE]
+    body_hits.sort(key=lambda h: (-h.score, h.file))
+    return (hits + body_hits)[:limit]
+
+
+def bm25(mem: Path, ents: list, q: set[str]) -> list[Hit]:
+    n = len(ents)
+    avg = sum(sum(doc.values()) for *_, doc in ents) / n or 1.0
+    df: Counter = Counter(w for *_, doc in ents for w in doc)
+    out = []
+    for f, name, hook, _, doc in ents:
+        length = sum(doc.values())
+        score = 0.0
+        for w in q:
+            tf = doc.get(w, 0)
+            if not tf:
+                continue
+            idf = math.log(1 + (n - df[w] + 0.5) / (df[w] + 0.5))
+            score += idf * tf * (BM25_K1 + 1) / (tf + BM25_K1 * (1 - BM25_B + BM25_B * length / avg))
+        if score:
+            out.append(Hit(f, mem / f, name, hook, score))
+    return out
 
 
 def render(hits: list[Hit]) -> str:

@@ -139,6 +139,72 @@ class RareBoundaryTest(unittest.TestCase):
         self.assertEqual(len(mod.recall(mem, "alpha bravo", limit=10)), mod.RARE_MIN_DF)
 
 
+class BodyTierTest(Base):
+    """Second tier: BM25 over the whole topic file, gated by a high score.
+
+    The first tier only sees the index line and `description:`, so a prompt
+    that uses the file's own words ("ztunnel", "waypoint") finds nothing. On
+    the real archive (373 entries), a whole-file BM25 match recalled 6 of 14
+    hand-written prompts the first tier missed at score >= BODY_MIN_SCORE, and
+    every stand-in prompt it fired on at that score was a relevant memory.
+    The fixture corpus is tiny, so its scores are not on that scale: these
+    tests set the threshold themselves.
+    """
+
+    BODY = ("---\nname: x\ndescription: mesh notes\nmetadata:\n  type: project\n---\n\n"
+            "Pods enroll through ztunnel; a waypoint proxy handles L7. "
+            "ztunnel restarts drop enrollment until the waypoint is redeployed.\n")
+
+    def setUp(self):
+        super().setUp()
+        with (self.mem / "MEMORY-ARCHIVE.md").open("a") as f:
+            f.write("- [mesh](project_mesh.md) — service mesh topology\n")
+        (self.mem / "project_mesh.md").write_text(self.BODY)
+
+    def threshold(self, value: float):
+        old = mod.BODY_MIN_SCORE
+        mod.BODY_MIN_SCORE = value
+        self.addCleanup(setattr, mod, "BODY_MIN_SCORE", old)
+
+    def test_body_words_recall_the_entry(self):
+        # Neither word is in the index line or the description.
+        self.threshold(0.1)
+        self.assertEqual(self.names("why did ztunnel drop the waypoint"), ["project_mesh.md"])
+
+    def test_body_match_below_threshold_returns_nothing(self):
+        self.threshold(1e9)
+        self.assertEqual(self.names("why did ztunnel drop the waypoint"), [])
+
+    def test_default_threshold_keeps_weak_body_matches_out(self):
+        # One shared body word scores far below the default gate.
+        self.assertEqual(self.names("restart the ztunnel"), [])
+
+    def test_first_tier_hits_come_first_and_are_not_repeated(self):
+        self.threshold(0.1)
+        hits = self.names("restic restore drill and the ztunnel waypoint", limit=5)
+        self.assertEqual(hits[0], "project_restic_restore.md")
+        self.assertIn("project_mesh.md", hits)
+        self.assertEqual(len(hits), len(set(hits)))
+
+    def test_long_prompt_skips_the_body_tier_too(self):
+        self.threshold(0.1)
+        long = "ztunnel waypoint " + " ".join(f"word{i}x" for i in range(60))
+        self.assertEqual(self.names(long), [])
+
+    def test_index_entries_are_not_body_matched(self):
+        # The index is already loaded; its files must not come back via their body.
+        self.threshold(0.1)
+        (self.mem / "reference_harbor_gc.md").write_text(self.BODY.replace("mesh notes", "gc"))
+        self.assertNotIn("reference_harbor_gc.md", self.names("ztunnel waypoint", limit=10))
+
+    def test_ties_break_by_file_name(self):
+        self.threshold(0.1)
+        with (self.mem / "MEMORY-ARCHIVE.md").open("a") as f:
+            f.write("- [mesh2](project_amesh.md) — service mesh topology\n")
+        (self.mem / "project_amesh.md").write_text(self.BODY)
+        self.assertEqual(self.names("ztunnel waypoint", limit=2), ["project_amesh.md", "project_mesh.md"])
+
+
 class RenderTest(Base):
     def test_block_lists_absolute_paths_and_hooks(self):
         out = mod.render(mod.recall(self.mem, "restic restore test"))

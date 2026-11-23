@@ -27,7 +27,7 @@ spec:
       secretsScope:
         projectSlug: homelab-bz-gt                # the homelab Infisical project
         envSlug: prod                             # always 'prod' for the live cluster
-        secretsPath: "/"
+        secretsPath: "/<app-namespace>"           # the namespace's own folder; see Conventions
         recursive: false
       credentialsRef:
         secretName: infisical-machine-identity
@@ -39,10 +39,12 @@ spec:
     template:
       includeAllSecrets: false
       data:
-        # Keys here MUST exist in Infisical at projectSlug/envSlug above.
-        # If a key is missing, the InfisicalSecret CR stays in the Failed
-        # state and the managed Secret won't exist — pods that bind it
-        # CrashLoopBackOff.
+        # Keys here MUST exist in Infisical at projectSlug/envSlug/secretsPath.
+        # If a key is missing, the operator still creates the Secret, writes
+        # the literal string "<no value>" into it, and reports
+        # ReadyToSyncSecrets=True (seen 2026-11-23, tinywebui-fork). The pod
+        # starts and fails at runtime (a 401, a bad password), so check the
+        # value's shape, never just "the Secret exists".
         API_KEY: "{{ .API_KEY.Value }}"
         DB_PASSWORD: "{{ .DB_PASSWORD.Value }}"
 ```
@@ -65,6 +67,7 @@ The Deployment then references the managed Secret normally:
 | `hostAPI` | `http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080/api` | In-cluster ClusterIP, so secret sync doesn't depend on external DNS + the Gateway. `infisical.sirddail.net` is the same self-hosted instance via the external round trip — UI only, never `hostAPI` (homelab#522). `http://` is not cleartext: both namespaces are ambient-enrolled, so ztunnel wraps it in mTLS |
 | `projectSlug` | `homelab-bz-gt` | Single project for all homelab apps |
 | `envSlug` | `prod` | We don't run a dev/staging tier in the homelab |
+| `secretsPath` | `/<app-namespace>` for a **new** secret that only this namespace reads; `/` for one that many namespaces share (e.g. the `HB_*` Harbor pull keys) | CI jobs read `/` non-recursively with `export-type: env` (homelab#2321), so every secret at `/` lands in every CI job's environment; a folder keeps it out. Named after the namespace so a later per-namespace identity can be granted exactly `/<namespace>`. Existing CRs at `/` stay there until homelab#2321 moves them with no gap. Examples: `/homepage`, `/pihole`, `/tinywebui-fork`. Create the folder in Infisical before the key |
 | `credentialsRef` | `infisical-machine-identity` / `infisical-operator` | Shared machine identity; deployed by the Infisical operator chart |
 | `managedSecretReference.secretName` | `<app>-secrets` | Plural convention. Examples: `n8n-secrets`, `redis-secrets`, `libreoffice-secrets` |
 | `resyncInterval` | `60` | Compromise between freshness and Infisical API load |

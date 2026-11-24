@@ -86,6 +86,9 @@ declare -A DIRECT_PUSH_APPS=(
   # these beside the IU App, and audit.sh expects both.
   [dvystrcil/n8n-workflow]="3693085"
   [dvystrcil/open-webui]="3693085"
+  # IU writes stock marcellm01/tinysearch to overlays/; release-action from
+  # tinysearch-fork-docker commits fork/'s tag (tinysearch-mcp#35).
+  [dvystrcil/tinysearch-mcp]="3693085"
   # rebuild-configmap.yml pushes the regenerated ConfigMap to main as the CICD
   # App (6 rule-suite bypasses in Oct-Nov 2026, under the hand-made Ruleset).
   [dvystrcil/skills]="3693085"

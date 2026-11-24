@@ -43,7 +43,7 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  validate-frontmatter:
+  validate-owui-frontmatter:
     # GitHub-hosted, not skills-runner (argocd-projects#356): this repo is
     # PUBLIC, so a PR runs code anyone can write. This job needs no secret
     # and nothing in the cluster, and standard GitHub-hosted runners are free

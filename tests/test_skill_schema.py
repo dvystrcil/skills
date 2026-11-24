@@ -11,7 +11,7 @@ silently — this lint runs at PR-time as the upstream gate.
 Scope: lints only `claude/*/SKILL.md` (MCP-dispatchable skills).
 Owui-side SKILL.md files at `owui/*/SKILL.md` use a different shape
 (prompt-time content, no `script:`/`args:`) and are validated by the
-sibling `validate-frontmatter` bash check in `.github/workflows/
+sibling `validate-owui-frontmatter` bash check in `.github/workflows/
 validate-skills.yml`.
 
 Required frontmatter keys (every skill):

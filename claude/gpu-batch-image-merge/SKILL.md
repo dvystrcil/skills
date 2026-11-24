@@ -1,6 +1,6 @@
 ---
 name: gpu-batch-image-merge
-description: Tell the owner (only) when a gpu-batch image bump PR (dvystrcil/gpu-batch "deploy: gpu-batch-blender gpu-batch-freecad <ver>", opened by the CI bot because AUTO_DEPLOY is false) is safe to merge — green, and no batch Job or chain step in flight. Use at every status report, before submitting batch-lane work, and when a chain finishes; never merge it yourself.
+description: 'Tell the owner (only) when a gpu-batch image bump PR (dvystrcil/gpu-batch "deploy: gpu-batch-blender gpu-batch-freecad <ver>", opened by the CI bot because AUTO_DEPLOY is false) is safe to merge — green, and no batch Job or chain step in flight. Use at every status report, before submitting batch-lane work, and when a chain finishes; never merge it yourself.'
 script: null
 args: []
 ---

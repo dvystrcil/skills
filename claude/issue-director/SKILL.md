@@ -26,7 +26,14 @@ approves the shortlist, you review every result, and the owner merges.
 ## Phase 1: triage (no agents yet)
 
 1. List the open issues with one search across the owner's repos:
-   `gh search issues --owner <owner> --state open --limit 500 --json repository,number,title,labels,updatedAt`.
+   `gh search issues --owner <owner> --state open --archived=false --limit 500 --json repository,number,title,labels,author,updatedAt`.
+   Leave out bot-authored issues (`author.is_bot`, or the `automated`,
+   `dashboard` or `dependency-dashboard` labels) before you count or
+   shortlist. **Get counts from homelab's `bin/open-issues.py`**, which splits
+   work, bot, renovate and archived issues and checks each count against the
+   search API's total. On 2026-11-27 the raw search said 481 open issues; 298
+   were work. 15 were in archived repos, which can't be closed and stay in
+   every count, and 119 were Renovate Dependency Dashboards.
    Then filter it down to the repos in scope. Check first how many there are per
    repo: homelab alone can hold 100+, so read titles and labels to shortlist
    before you open any issue in full.
@@ -135,6 +142,13 @@ approves the shortlist, you review every result, and the owner merges.
   - any new endpoint reachable from the internet needs auth, named in the
     brief. On 2026-11-19 an agent added an unauthenticated n8n webhook (its
     path skips Cloudflare Access), and it had to be sent back for header auth.
+  - any workflow that reads Infisical fetches **one named secret per step**
+    (`secret-name:`, homelab#2552). Without it, `Infisical/secrets-action`
+    exports the whole prod store into the job's environment. On 2026-11-27
+    both agents that added a workflow (homelab#2606, llm-wiki#70) left it out
+    and were sent back. Copying a sibling workflow doesn't protect against
+    this, because most homelab workflows still fetch the whole store
+    (homelab#2608).
   - what to report at the end
 
 ### Rules every agent follows
@@ -248,6 +262,16 @@ approves the shortlist, you review every result, and the owner merges.
   finish before sending the next. The sync runs one at a time, and a third
   dispatch cancelled the second on 2026-11-18. Then re-read live and compare it
   with `main`.
+- **Review a removed or raised limit for blast radius.** On 2026-11-27
+  homelab#2605 lifted a pod-delete cap for one class of pods. CI was green, but
+  `kubectl delete pod` ignores PodDisruptionBudgets, so the change could have
+  deleted every replica of a Deployment at once. It went back to the agent to
+  delete one pod at a time and wait for each ReplicaSet to recover. Green tests
+  check the logic, not the blast radius.
+- **Close recovered bot issues yourself after a live check.** n8n Self-Watch
+  reopens an issue when its finding comes back but never closes one when it
+  clears. On 2026-11-27, n8n-workflow#325 and #311 were both stale until a
+  manual self-watch run (`findings=0`) proved them recovered.
 - Close superseded PRs yourself (`gh pr close` with a comment giving the reason).
 - Keep one status table (issue, agent, PR, CI, state). Show it when something
   changes, not on every notification.
